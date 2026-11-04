@@ -8,3 +8,11 @@ scripts/assets/.cache/
 
 # Configurações locais do Claude Code e caches de geração
 .claude/
+
+# Inicialização local do Windows; dados, cópias e testes ficam fora do Git.
+/local/*
+!/local/start-habblaud.ps1
+!/local/habblaud-tray.ps1
+!/local/create-shortcuts.py
+!/local/habblaud.ico
+!/local/README.md
