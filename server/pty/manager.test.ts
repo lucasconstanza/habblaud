@@ -227,6 +227,7 @@ function fakeStream(): { req: IncomingMessage; res: ServerResponse; out: string[
   const req = Object.assign(new EventEmitter(), { socket: { setTimeout() {}, setNoDelay() {} } }) as unknown as IncomingMessage;
   const res = Object.assign(new EventEmitter(), {
     writableEnded: false,
+    writableLength: 0,
     writeHead() {},
     write(chunk: string) {
       out.push(chunk);
@@ -277,6 +278,43 @@ describe('PtyManager: tela para quem conecta', () => {
     expect(text.indexOf('durante')).toBeGreaterThan(text.indexOf('[tela:antes ]'));
     proc!.data('depois');
     expect(out.join('')).toContain('depois');
+  });
+
+  it('desconecta uma aba lenta antes de acumular saída sem limite', () => {
+    let proc: FakeProc | undefined;
+    const manager = new PtyManager({
+      spawn: () => (proc = new FakeProc(78)),
+      claudeBin: process.execPath,
+      accounts: () => [{ id: 'acc', dir: tmpdir(), isDefault: true }],
+      agent: () => undefined,
+      onChange: () => {},
+    });
+    const info = manager.create({ cwd: tmpdir() });
+    const { req, res } = fakeStream();
+    manager.attach(info.id, req, res);
+    (res as ServerResponse & { writableLength: number }).writableLength = 8 * 1024 * 1024;
+    proc!.data('mais saída');
+    expect(res.writableEnded).toBe(true);
+  });
+
+  it('limita a fila enquanto a tela inicial ainda está sendo montada', () => {
+    let proc: FakeProc | undefined;
+    let finishScreen: (() => void) | undefined;
+    const manager = new PtyManager({
+      spawn: () => (proc = new FakeProc(79)),
+      claudeBin: process.execPath,
+      accounts: () => [{ id: 'acc', dir: tmpdir(), isDefault: true }],
+      agent: () => undefined,
+      onChange: () => {},
+      createScreen: () => ({ write(_data, done) { if (done) finishScreen = done; }, resize() {}, serialize: () => '', dispose() {} }),
+    });
+    const info = manager.create({ cwd: tmpdir() });
+    const { req, res } = fakeStream();
+    manager.attach(info.id, req, res);
+    proc!.data('x'.repeat(8 * 1024 * 1024 + 1));
+    expect(res.writableEnded).toBe(true);
+    finishScreen?.();
+    expect(res.writableEnded).toBe(true);
   });
 });
 

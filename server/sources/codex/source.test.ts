@@ -533,6 +533,26 @@ describe('fonte do Codex: eventos de hook', () => {
     expect(ctx.agent(`.codex:${C}`)).toBeDefined();
   });
 
+  it('Docker: identifica duas contas do host Windows com caminhos de caixa e barras diferentes', () => {
+    const ctx = setup({
+      names: ['.codex', '.codex-b'],
+      env: (dirs) => ({
+        HABBLAUD_ACCOUNTS: JSON.stringify([
+          { id: '.codex', provider: 'codex', configDir: 'C:/Exemplo/.codex', mountDir: dirs[0], short: 'CX', name: 'Codex CX', color: '#111111' },
+          { id: '.codex-b', provider: 'codex', configDir: 'C:/Exemplo/.codex-b', mountDir: dirs[1], short: 'CB', name: 'Codex CB', color: '#222222' },
+        ]),
+      }),
+    });
+    ctx.source.boot();
+    expect(ctx.hook(ev('SessionStart'), 'c:\\EXEMPLO\\.CODEX-B\\')).toBe(true);
+    expect(ctx.agent(`.codex-b:${T}`)?.account).toBe('.codex-b');
+    expect(ctx.hook(ev('SessionStart', {
+      session_id: C,
+      transcript_path: 'c:\\EXEMPLO\\.CODEX\\sessions\\2026\\10\\09\\rollout.jsonl',
+    }))).toBe(true);
+    expect(ctx.agent(`.codex:${C}`)?.account).toBe('.codex');
+  });
+
   it('a presença do hook dura 60 s sem lock; SessionEnd fecha', () => {
     const ctx = setup();
     ctx.source.boot();

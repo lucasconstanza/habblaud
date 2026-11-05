@@ -13,6 +13,7 @@ scripts/assets/.cache/
 /local/*
 !/local/start-habblaud.ps1
 !/local/habblaud-tray.ps1
+!/local/habblaud-launcher.pyw
 !/local/create-shortcuts.py
 !/local/habblaud.ico
 !/local/README.md

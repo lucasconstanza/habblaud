@@ -1,8 +1,14 @@
 // Salas do escritório: identidade (cwd normalizado), nome exibido e posição (slot) no prédio.
+import { win32 } from 'node:path';
 
-/** cwd normalizado: sem barras repetidas nem barra final. */
+/** Identidade da pasta: caminhos Windows equivalentes compartilham sala, sem alterar o cwd usado para abrir a pasta. */
 export function normalizeCwd(cwd: string): string {
-  const p = cwd.trim().replace(/\/{2,}/g, '/');
+  const input = cwd.trim();
+  if (/^[a-zA-Z]:[\\/]/.test(input) || /^(?:\\\\|\/\/)[^\\/]+[\\/]+[^\\/]+/.test(input)) {
+    const p = win32.normalize(input).replace(/\\/g, '/').replace(/\/+$/, '');
+    return (p.endsWith(':') ? `${p}/` : p).toLowerCase();
+  }
+  const p = input.replace(/\/{2,}/g, '/');
   return p.length > 1 ? p.replace(/\/+$/, '') : p;
 }
 

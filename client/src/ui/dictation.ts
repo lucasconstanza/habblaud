@@ -1,5 +1,5 @@
 // Ditado: botão de microfone que grava no navegador (MediaRecorder), manda o áudio ao Habblaud (POST /api/dictation)
-// e devolve o texto transcrito pelo Whisper local do Mac, com o idioma detectado sozinho (português ou inglês; ver
+// e devolve o texto transcrito pelo Whisper local do computador, com o idioma detectado sozinho (português ou inglês; ver
 // server/dictation/whisper.ts). Fica no "Novo agente" e na caixa de mensagem (gaveta e terminal). O microfone só existe
 // em página segura (HTTPS ou localhost): fora disso o botão some.
 import { tr } from '../../../shared/i18n';
@@ -25,7 +25,7 @@ export interface DictationText {
   lang?: string;
 }
 
-type State = 'idle' | 'recording' | 'working';
+type State = 'idle' | 'opening' | 'recording' | 'working';
 
 interface DictationReply {
   id: string;
@@ -85,7 +85,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 const AVAILABLE_TTL_MS = 30_000;
 let availableCache: { at: number; value: Promise<boolean> } | null = null;
 
-/** O ditado funciona daqui (navegador grava e o Mac tem o Whisper)? Uma consulta a cada 30 s, dividida entre as caixas. */
+/** O ditado funciona daqui (navegador grava e o computador tem o Whisper)? Uma consulta a cada 30 s, dividida entre as caixas. */
 export function dictationAvailable(now = Date.now()): Promise<boolean> {
   if (!canRecord()) return Promise.resolve(false);
   if (availableCache && now - availableCache.at < AVAILABLE_TTL_MS) return availableCache.value;
@@ -114,6 +114,7 @@ export class DictationButton {
   private timer: ReturnType<typeof setInterval> | null = null;
   private startedAt = 0;
   private cancelled = false;
+  private openingAttempt = 0;
 
   constructor(
     private readonly onText: (t: DictationText) => void,
@@ -138,6 +139,11 @@ export class DictationButton {
 
   /** Para a gravação sem transcrever (painel fechado). */
   cancel(): void {
+    if (this.state === 'opening') {
+      this.openingAttempt++;
+      this.set('idle');
+      return;
+    }
     if (this.state !== 'recording') return;
     this.cancelled = true;
     this.stopRecorder();
@@ -145,23 +151,34 @@ export class DictationButton {
 
   private async toggle(): Promise<void> {
     if (this.state === 'recording') return this.stopRecorder();
-    if (this.state === 'working') return;
+    if (this.state !== 'idle') return;
     await this.start();
   }
 
   private async start(): Promise<void> {
     if (!canRecord()) return this.say(tr('Este navegador não deixa gravar áudio aqui (precisa de HTTPS).'), true);
+    const attempt = ++this.openingAttempt;
+    this.set('opening');
+    let stream: MediaStream;
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
     } catch (err) {
+      if (attempt !== this.openingAttempt) return;
+      this.set('idle');
       const denied = (err as DOMException)?.name === 'NotAllowedError';
       return this.say(denied ? tr('Sem permissão para o microfone: libere nas configurações do navegador e tente de novo.') : tr('Não deu para abrir o microfone.'), true);
     }
+    if (attempt !== this.openingAttempt) {
+      stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    this.stream = stream;
     const mimeType = pickMimeType((t) => MediaRecorder.isTypeSupported(t));
     try {
       this.recorder = new MediaRecorder(this.stream, mimeType ? { mimeType } : undefined);
     } catch {
       this.release();
+      this.set('idle');
       return this.say(tr('Este navegador não grava áudio.'), true);
     }
     this.chunks = [];
@@ -170,7 +187,14 @@ export class DictationButton {
       if (e.data.size) this.chunks.push(e.data);
     });
     this.recorder.addEventListener('stop', () => void this.finish(), { once: true });
-    this.recorder.start(1_000);
+    try {
+      this.recorder.start(1_000);
+    } catch {
+      this.recorder = null;
+      this.release();
+      this.set('idle');
+      return this.say(tr('Este navegador não grava áudio.'), true);
+    }
     this.startedAt = Date.now();
     this.opts.onStart?.();
     this.set('recording');
@@ -244,7 +268,8 @@ export class DictationButton {
     this.el.classList.toggle('is-recording', state === 'recording');
     this.el.classList.toggle('is-working', state === 'working');
     this.el.setAttribute('aria-pressed', String(state === 'recording'));
-    this.el.disabled = state === 'working';
+    this.el.disabled = state === 'opening' || state === 'working';
+    this.el.setAttribute('aria-busy', String(state === 'opening'));
     const icon = this.el.querySelector('.ui-dictate__icon');
     if (icon) icon.innerHTML = state === 'recording' ? ICONS.stopRec : ICONS.mic;
     this.el.setAttribute('aria-label', state === 'recording' ? tr('Parar o ditado') : state === 'working' ? tr('Transcrevendo') : tr('Ditar'));

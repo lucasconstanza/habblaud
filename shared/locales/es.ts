@@ -2,6 +2,16 @@
 // As lacunas {0}, {1}... (e as nomeadas, como {sala}) precisam aparecer na tradução, em qualquer ordem.
 // Chave ausente = o texto fica em PT. `npm run i18n:check` lista os textos sem tradução e as chaves que sobraram.
 export const ES: Readonly<Record<string, string>> = {
+  "Para responder, use o Gemini CLI": "Para responder, usa Gemini CLI",
+  "Abra o Claude Code{0} ou o Gemini CLI em qualquer projeto e veja seu agente chegar.": "Abre Claude Code{0} o Gemini CLI en cualquier proyecto y verás llegar a tu agente.",
+  "Abra o Claude Code{0}, o Codex ou o Gemini CLI em qualquer projeto e veja seu agente chegar.": "Abre Claude Code{0}, Codex o Gemini CLI en cualquier proyecto y verás llegar a tu agente.",
+  "{0} · responda no Gemini CLI": "{0} · responde en Gemini CLI",
+  "Gemini CLI não encontrado": "No se encontró Gemini CLI",
+  "evento do Gemini CLI inválido": "evento de Gemini CLI no válido",
+  "eventos do Gemini CLI só são aceitos pelo próprio computador": "Los eventos de Gemini CLI solo se aceptan desde este equipo",
+  "   Gemini CLI: conta {0}, {1} sessão(ões) confirmada(s) por hook.": "   Gemini CLI: cuenta {0}, {1} sesión(es) confirmada(s) por hook.",
+  "Agente principal (Gemini CLI)": "Agente principal (Gemini CLI)",
+  "aprovar uma permissão no Gemini CLI": "aprobar un permiso en Gemini CLI",
   // client/src/main.ts
   "Escritório virtual em pixel art que mostra, em tempo real, o que seus agentes do Claude Code estão fazendo.": "Oficina virtual en pixel art que muestra, en tiempo real, lo que están haciendo tus agentes de Claude Code.",
 
@@ -870,6 +880,14 @@ export const ES: Readonly<Record<string, string>> = {
   "sem dados ainda": "sin datos aún",
   "sem dados": "sin datos",
   "sem dados de uso": "sin datos de uso",
+  "Cota no Gemini CLI": "Cuota en Gemini CLI",
+  "Ver cota na CLI": "Ver cuota en la CLI",
+  "No Gemini CLI, rode `/stats model` para consultar a cota por modelo. O Habblaud não recebe esses números da CLI.": "En Gemini CLI, ejecuta `/stats model` para consultar la cuota por modelo. Habblaud no recibe esas cifras de la CLI.",
+  "{0}: cota no Gemini CLI": "{0}: cuota en Gemini CLI",
+  "{0}: última leitura {1}. Uso atual desconhecido.": "{0}: última lectura {1}. Uso actual desconocido.",
+  "Última leitura: {0}": "Última lectura: {0}",
+  "O mod do Habblaud já capturou uso nesta conta ({0}). Abra uma sessão do Claude Code desta conta para receber novos números; se já estiver aberta, rode `/reload-plugins`.": "El mod de Habblaud ya registró el uso de esta cuenta ({0}). Abre una sesión de Claude Code con esta cuenta para recibir cifras nuevas; si ya está abierta, ejecuta `/reload-plugins`.",
+  "O tap de statusline já capturou uso nesta conta ({0}). Abra ou continue uma sessão do Claude Code desta conta para receber novos números.": "El tap de la línea de estado ya registró el uso de esta cuenta ({0}). Abre o continúa una sesión de Claude Code con esta cuenta para recibir cifras nuevas.",
   "Não precisa instalar nada: os números chegam com a próxima sessão do Codex.": "No hace falta instalar nada: los números llegan con la próxima sesión de Codex.",
   "Na última leitura ({0}), a conta estava sem cota nem créditos para usar (ex.: os créditos do workspace acabaram). Não é 0%: o Codex não informou as janelas. Os números voltam com a próxima sessão.": "En la última lectura ({0}), la cuenta no tenía cuota ni créditos para usar (p. ej.: se acabaron los créditos del workspace). No es 0%: Codex no informó las ventanas. Los números vuelven con la próxima sesión.",
   "O Codex só grava o uso enquanto alguma sessão roda: estes números são da última leitura ({0}).": "Codex solo registra el uso mientras hay alguna sesión en curso: estos números son de la última lectura ({0}).",
@@ -1782,6 +1800,7 @@ export const ES: Readonly<Record<string, string>> = {
   // server/model/names.ts
   "names.json ilegível ({0}); começando do zero.": "names.json ilegible ({0}); empezando de cero.",
   "Não foi possível gravar {0} ({1}); os nomes valem só nesta execução.": "No se pudo guardar {0} ({1}); los nombres valen solo en esta ejecución.",
+  "Conflito na migração de personagens: {0} alternativa(s) preservada(s) em roomConflicts de names.json.": "Conflicto al migrar personajes: {0} alternativa(s) conservada(s) en roomConflicts de names.json.",
 
   // server/model/office.ts
   "⏳ {0} está esperando o shell em {1}{2}": "⏳ {0} está esperando el shell en {1}{2}",
@@ -2075,6 +2094,8 @@ export const ES: Readonly<Record<string, string>> = {
   "{0} não tem projects/ nem sessions/; conta ignorada.": "{0} no tiene projects/ ni sessions/; cuenta ignorada.",
   "{0} é uma pasta do Codex, não do Claude Code; conta ignorada.": "{0} es una carpeta de Codex, no de Claude Code; cuenta ignorada.",
   "Codex {0} ({1}): monta {2} de {3}, somente leitura.": "Codex {0} ({1}): monta {2} desde {3}, solo lectura.",
+  "Gemini CLI: monta tmp/ de {0}, somente leitura.": "Gemini CLI: monta tmp/ desde {0}, solo lectura.",
+  "  Gemini CLI ({0}): {1} sessão(ões) confirmada(s) por hook.": "  Gemini CLI ({0}): {1} sesión(es) confirmada(s) por hook.",
   "{0} ainda não tem thread-writer-locks/: no container, sessão aberta = conversa modificada nos últimos 30 min (rode o docker:up de novo depois de usar o Codex).": "{0} aún no tiene thread-writer-locks/: en el contenedor, sesión abierta = conversación modificada en los últimos 30 min (vuelve a ejecutar docker:up después de usar Codex).",
   "Uso ao vivo (mod ou tap de statusline): monta {0} em {1}, somente leitura.": "Uso en vivo (mod o tap de statusline): monta {0} en {1}, solo lectura.",
   "docker-compose.override.yml gerado.": "docker-compose.override.yml generado.",
@@ -2388,6 +2409,8 @@ export const ES: Readonly<Record<string, string>> = {
   "a transcrição demorou demais": "la transcripción tardó demasiado",
 
   // server/dictation/whisper.ts
+  "whisper-cli (instale whisper.cpp ou defina HABBLAUD_WHISPER_BIN)": "whisper-cli (instala whisper.cpp o configura HABBLAUD_WHISPER_BIN)",
+  "ffmpeg (instale ou defina HABBLAUD_FFMPEG_BIN)": "ffmpeg (instálalo o configura HABBLAUD_FFMPEG_BIN)",
   "um modelo multilíngue do Whisper (ggml-small.bin ou ggml-base.bin em ~/.local/share/whisper)": "un modelo multilingüe de Whisper (ggml-small.bin o ggml-base.bin en ~/.local/share/whisper)",
   "falhou": "falló",
   "não deu para ler o áudio ({0})": "no se pudo leer el audio ({0})",
@@ -2408,6 +2431,7 @@ export const ES: Readonly<Record<string, string>> = {
   "anexo desconhecido: atualize a lista de entregas": "adjunto desconocido: actualiza la lista de entregas",
   "arquivos desligados": "archivos desactivados",
   "só o auxiliar do próprio computador": "solo el auxiliar del propio equipo",
+  "só o próprio computador pode alterar o modo demonstração": "solo el propio equipo puede cambiar el modo demostración",
   "esperado {id, name}": "se esperaba {id, name}",
 
   // server/http/remote.ts

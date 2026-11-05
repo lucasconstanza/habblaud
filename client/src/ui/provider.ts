@@ -8,7 +8,7 @@ import { shortcutHint } from './model';
 import { tr } from '../../../shared/i18n';
 
 /** Nome de cada ferramenta como aparece nos textos. */
-export const PROVIDER_NAME: Record<Provider, string> = { claude: 'Claude Code', codex: 'Codex' };
+export const PROVIDER_NAME: Record<Provider, string> = { claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini CLI' };
 
 /** Ferramenta de um agente, conta, sessão ou pedido (ausente = Claude Code). */
 export function providerOf(x: { provider?: Provider } | null | undefined): Provider {
@@ -27,10 +27,14 @@ export function looksLikeCodexId(id: string): boolean {
   return /(?:^|[:/\\])\.?codex(?:[-_.~]|$)/i.test(id);
 }
 
+export function looksLikeGeminiId(id: string): boolean {
+  return /(?:^|[:/\\])\.?gemini(?:[-_.~]|$)/i.test(id);
+}
+
 /** Ferramenta da conta: a do snapshot; sem ela, a dica de quem chamou ou o jeito do id. */
 export function accountProvider(account: Pick<AccountInfo, 'provider'> | undefined, fallbackId = '', hint?: Provider): Provider {
   if (account) return providerOf(account);
-  return hint ?? (looksLikeCodexId(fallbackId) ? 'codex' : 'claude');
+  return hint ?? (looksLikeCodexId(fallbackId) ? 'codex' : looksLikeGeminiId(fallbackId) ? 'gemini' : 'claude');
 }
 
 /**
@@ -42,22 +46,22 @@ export function fallbackShort(id: string, provider: Provider = accountProvider(u
   const rest = id
     .replace(/^.*:/, '')
     .replace(/~\d+$/, '')
-    .replace(/^\.?(?:claude|codex)(?=[-_.]|$)[-_.]?/i, '');
+    .replace(/^\.?(?:claude|codex|gemini)(?=[-_.]|$)[-_.]?/i, '');
   const letter = /[\p{L}\p{N}]/u.exec(rest)?.[0];
   if (letter) return letter.toUpperCase();
-  return provider === 'codex' ? 'X' : '?';
+  return provider === 'codex' ? 'X' : provider === 'gemini' ? 'G' : '?';
 }
 
 /** O selo "Codex" ao lado do nome da conta (não repete quando o nome já diz "Codex"). */
 export function showsProviderTag(provider: Provider, accountName = ''): boolean {
-  return provider === 'codex' && !/codex/i.test(accountName);
+  return provider !== 'claude' && !accountName.toLowerCase().includes(PROVIDER_NAME[provider].toLowerCase().split(' ')[0]);
 }
 
 /** Rótulo do chip da conta (dica e leitores de tela): "Conta C (dev@x.com)", "Codex · plano Team". */
 export function accountChipLabel(account: Pick<AccountInfo, 'name' | 'email' | 'plan' | 'provider'> | undefined, fallbackId: string, provider: Provider): string {
-  if (!account) return fallbackId ? `${fallbackId}${provider === 'codex' ? ' · Codex' : ''}` : tr('Conta desconhecida');
-  if (provider !== 'codex') return `${account.name}${account.email ? ` (${account.email})` : ''}`;
-  const tag = showsProviderTag(provider, account.name) ? ' · Codex' : '';
+  if (!account) return fallbackId ? `${fallbackId}${provider !== 'claude' ? ` · ${PROVIDER_NAME[provider]}` : ''}` : tr('Conta desconhecida');
+  if (provider === 'claude') return `${account.name}${account.email ? ` (${account.email})` : ''}`;
+  const tag = showsProviderTag(provider, account.name) ? ` · ${PROVIDER_NAME[provider]}` : '';
   return `${account.name}${tag}${account.plan ? tr(' · plano {0}', [account.plan]) : ''}`;
 }
 
@@ -66,8 +70,12 @@ export function accountChipLabel(account: Pick<AccountInfo, 'name' | 'email' | '
  * shell (a letra de uma conta do Codex não é um atalho); o Codex só entra quando há uma conta dele.
  */
 export function emptyOfficeHint(accounts: readonly Pick<AccountInfo, 'short' | 'provider'>[]): string {
-  const keys = shortcutHint(accounts.filter((a) => !isCodex(a)));
-  if (!accounts.some(isCodex)) return tr('Abra o Claude Code em qualquer projeto{0} e veja seu agente chegar.', [keys ? ` (${keys})` : '']);
+  const keys = shortcutHint(accounts.filter((a) => providerOf(a) === 'claude'));
+  const codex = accounts.some(isCodex);
+  const gemini = accounts.some((a) => providerOf(a) === 'gemini');
+  if (!codex && !gemini) return tr('Abra o Claude Code em qualquer projeto{0} e veja seu agente chegar.', [keys ? ` (${keys})` : '']);
+  if (!codex) return tr('Abra o Claude Code{0} ou o Gemini CLI em qualquer projeto e veja seu agente chegar.', [keys ? ` (${keys})` : '']);
+  if (gemini) return tr('Abra o Claude Code{0}, o Codex ou o Gemini CLI em qualquer projeto e veja seu agente chegar.', [keys ? ` (${keys})` : '']);
   return tr('Abra o Claude Code{0} ou o Codex em qualquer projeto e veja seu agente chegar.', [keys ? ` (${keys})` : '']);
 }
 

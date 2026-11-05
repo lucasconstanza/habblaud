@@ -152,7 +152,7 @@ const isFinal = (e: Entry) => e.msg.status === 'delivered' || e.msg.status === '
 function unavailableReason(a: AgentInfo, reachable: boolean): string | undefined {
   if (a.kind !== 'main') return tr('subagentes não recebem mensagens: mande para o agente principal');
   if (!present(a)) return tr('o agente já saiu do escritório');
-  if (!reachable) return a.provider === 'codex' ? ERR_CODEX_UNAVAILABLE : tr('a sessão não está com o plugin habblaud-mensagens conectado (npm run mod:install)');
+  if (!reachable) return a.provider === 'codex' ? ERR_CODEX_UNAVAILABLE : a.provider === 'gemini' ? tr('Para responder, use o Gemini CLI') : tr('a sessão não está com o plugin habblaud-mensagens conectado (npm run mod:install)');
   return undefined;
 }
 
@@ -240,6 +240,7 @@ export class MessageRegistry {
   canMessage(agentId: string): boolean {
     const a = this.opts.office.get(agentId);
     if (a?.provider === 'codex') return this.codexAvailable() && present(a) && a.kind === 'main';
+    if (a?.provider === 'gemini') return false;
     const at = this.seen.get(agentId);
     if (at === undefined || this.now() - at >= this.presenceMs) return false;
     return present(a) && a.kind === 'main';
@@ -297,7 +298,7 @@ export class MessageRegistry {
     // O plugin é do Claude Code: agentes do Codex nunca recebem por aqui.
     const agent = this.opts.office
       .list()
-      .find((a) => a.kind === 'main' && a.provider !== 'codex' && a.sessionId === session && (!account || a.account === account) && present(a));
+      .find((a) => a.kind === 'main' && (a.provider === undefined || a.provider === 'claude') && a.sessionId === session && (!account || a.account === account) && present(a));
     if (!agent) return [];
 
     const now = this.now();

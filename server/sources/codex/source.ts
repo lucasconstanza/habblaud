@@ -25,12 +25,13 @@
 // rollout relido nunca sobrescreve o 'waiting' de um PermissionRequest mais novo. Boot curto e síncrono (só a janela
 // final de rollouts grandes; o começo é lido depois, em segundo plano), com endBoot num `finally`.
 import { createReadStream, readdirSync, realpathSync, statSync, watch, type FSWatcher } from 'node:fs';
-import { basename, join, resolve, sep } from 'node:path';
+import { basename, isAbsolute, join, resolve, sep } from 'node:path';
 import type { AccountUsage, Activity, AgentStatus, SourceInfo } from '../../../shared/types';
 import type { DetectedAccount } from '../../accounts/detect';
 import type { AccountEntry, AccountsService } from '../../accounts/service';
 import { errMsg, log } from '../../log';
 import type { Office, TranscriptSummary } from '../../model/office';
+import { normalizeCwd } from '../../model/rooms';
 import type { AgentSource } from '../source';
 import { FileTail, LineBuffer, warnOversizedLine } from '../tail';
 import type { TerminalParser } from '../terminal';
@@ -914,24 +915,25 @@ export class CodexSource implements AgentSource, CodexLive {
    * com uma conta só, ela.
    */
   private accountFor(account: string | undefined, input: Record<string, unknown>, threadId: string): CodexAccount | undefined {
-    const norm = (p: string) => {
-      try {
-        return resolve(p);
-      } catch {
-        return p;
-      }
+    const norm = (p: string): string | undefined => {
+      if (/^[a-zA-Z]:[\\/]/.test(p) || /^(?:\\\\|\/\/)[^\\/]+[\\/]+[^\\/]+/.test(p)) return normalizeCwd(p);
+      return isAbsolute(p) ? resolve(p).split(sep).join('/') : undefined;
     };
+    const under = (path: string, dir: string | undefined) => !!dir && path.startsWith(`${dir.replace(/\/+$/, '')}/`);
     if (account) {
       const byId = this.accs.find((a) => a.id === account);
       if (byId) return byId;
       const abs = norm(account);
-      const byDir = this.accs.find((a) => norm(a.dir) === abs || norm(a.configDir) === abs);
-      if (byDir) return byDir;
+      if (abs) {
+        const byDir = this.accs.find((a) => norm(a.dir) === abs || norm(a.configDir) === abs);
+        if (byDir) return byDir;
+      }
     }
     for (const raw of [str(input.transcript_path), str(input.agent_transcript_path)]) {
       if (!raw) continue;
       const p = norm(raw);
-      const byPath = this.accs.find((a) => p.startsWith(norm(a.dir) + sep) || p.startsWith(norm(a.configDir) + sep));
+      if (!p) continue;
+      const byPath = this.accs.find((a) => under(p, norm(a.dir)) || under(p, norm(a.configDir)));
       if (byPath) return byPath;
     }
     const known = this.accs.filter((a) => this.threads.has(`${a.id}:${threadId}`));

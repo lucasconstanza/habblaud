@@ -36,6 +36,7 @@ Antes de abrir o pull request, rode:
 
 ```sh
 npm run typecheck
+npm run i18n:check
 npm test
 npm run build
 ```

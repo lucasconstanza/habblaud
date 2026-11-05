@@ -31,6 +31,8 @@
 //   aqui do mesmo jeito (saída e pausa gravadas, nenhum pacote até o join).
 // - Retomar sem resposta do servidor do mundo (rede, 429, 5xx): o uplink reconecta assim mesmo, e o aviso da retomada
 //   tenta de novo com a espera crescente da reconexão (backoffDelay), até dar certo ou o prédio ser pausado de novo.
+// - Pausar espera a confirmação remota; sem resposta, a interface recebe erro, o envio local permanece fechado e o
+//   aviso é repetido com a mesma espera crescente até ser confirmado ou o prédio ser retomado.
 // - Excluir a conta (Fase 6): pede o código (POST /v1/me/delete) e, com o código certo (POST /v1/me/delete/confirm),
 //   fecha a conexão do prédio, apaga o world.json inteiro (sessão e tema) e a última remessa, e só então responde. O
 //   `goodbye: deleted` (a conta excluída daqui ou de outro computador) faz o mesmo; os dois juntos não atrapalham.
@@ -93,14 +95,14 @@ export interface WorldServiceOptions {
   waitingPollMs?: number;
   /** Sorteio da espera entre as tentativas da retomada (padrão Math.random). */
   random?: () => number;
-  /** Retomada sem resposta: primeira espera e teto (padrão: os da reconexão do uplink, 2 s → 60 s). */
+  /** Pausa/retomada sem resposta: primeira espera e teto (padrão: os da reconexão do uplink, 2 s → 60 s). */
   resumeBackoff?: { minMs: number; maxMs: number };
   /** O social leve do dono (social.ts, Fase 5): lê o /v1/me e entra no meta e no status do prédio. */
   social?: OwnerSocial;
 }
 
-/** Teto da espera pedida pelo servidor do mundo (Retry-After) entre duas tentativas da retomada. */
-const RESUME_RETRY_AFTER_MAX_MS = 5 * 60_000;
+/** Teto da espera pedida pelo servidor do mundo (Retry-After) entre duas tentativas. */
+const BUILDING_RETRY_AFTER_MAX_MS = 5 * 60_000;
 
 /** Vale tentar de novo: sem rede, prazo, 429 ou erro do servidor do mundo. */
 const retryable = (status: number) => status === 0 || status === 408 || status === 429 || status >= 500;
@@ -134,7 +136,9 @@ export class WorldService {
   private uplink?: BuildingUplink;
   /** Pausa e retomada chegam ao servidor do mundo na ordem em que foram pedidas (uma por vez). */
   private buildingQueue: Promise<void> = Promise.resolve();
-  /** Próxima tentativa da retomada que o servidor do mundo não confirmou. */
+  /** Próximas tentativas da pausa e da retomada que o servidor do mundo não confirmou. */
+  private pauseTimer?: ReturnType<typeof setTimeout>;
+  private pauseAttempt = 0;
   private resumeTimer?: ReturnType<typeof setTimeout>;
   private resumeAttempt = 0;
   private readonly random: () => number;
@@ -154,6 +158,7 @@ export class WorldService {
   stop(): void {
     this.stopped = true;
     this.stopPoll();
+    this.clearPauseRetry();
     this.clearResumeRetry();
   }
 
@@ -217,11 +222,17 @@ export class WorldService {
   async pause(): Promise<Outcome<WorldStatus>> {
     const s = this.o.store.get();
     if (!s) return { ok: false, status: 401, code: 'not_logged_in' };
+    this.clearPauseRetry();
     this.clearResumeRetry();
     if (!s.paused) this.o.store.update({ paused: true });
     await this.uplink?.pause();
     this.o.onChange?.();
-    void this.queueBuilding('pause', s.token);
+    const r = await this.queueBuilding('pause', s.token);
+    if (!r.ok) {
+      if (r.status === 401 && this.o.store.get()?.token === s.token) this.drop('session_expired');
+      else if (retryable(r.status)) this.schedulePauseRetry(s.token, r);
+      return r;
+    }
     return { ok: true, status: 200, data: this.compose() };
   }
 
@@ -233,6 +244,7 @@ export class WorldService {
   async leave(): Promise<Outcome<WorldStatus>> {
     const s = this.o.store.get();
     if (!s) return { ok: false, status: 401, code: 'not_logged_in' };
+    this.clearPauseRetry();
     this.clearResumeRetry();
     this.o.store.update({ paused: true, left: true });
     await this.uplink?.pause();
@@ -243,7 +255,7 @@ export class WorldService {
     if (same) {
       this.o.store.update({ left: undefined });
       if (r.status === 401) this.drop('session_expired');
-      else void this.queueBuilding('pause', s.token);
+      else void this.sendPause(s.token);
       this.o.onChange?.();
     }
     return r;
@@ -257,6 +269,7 @@ export class WorldService {
     const s = this.o.store.get();
     if (!s) return { ok: false, status: 401, code: 'not_logged_in' };
     if (s.left) return this.join();
+    this.clearPauseRetry();
     if (s.paused) this.o.store.update({ paused: undefined });
     this.o.onChange?.();
     // O servidor do mundo não acende um prédio pausado com o sinal de vida: o resume vai (depois de uma pausa ainda
@@ -276,6 +289,7 @@ export class WorldService {
     if (!s) return { ok: false, status: 401, code: 'not_logged_in' };
     // Sem ter saído, voltar é retomar (pausado: avisa o /resume; o servidor não acende um prédio pausado sozinho).
     if (!s.left) return this.resume();
+    this.clearPauseRetry();
     this.clearResumeRetry();
     const r = await this.queueBuilding('join', s.token);
     if (this.o.store.get()?.token !== s.token) return r.ok ? { ok: true, status: 200, data: this.compose() } : r;
@@ -299,6 +313,7 @@ export class WorldService {
   leftElsewhere(): void {
     const s = this.o.store.get();
     if (!s || s.left) return;
+    this.clearPauseRetry();
     this.clearResumeRetry();
     this.o.store.update({ paused: true, left: true });
     log.info(tr('Habblaud World: a conta saiu do mundo; o prédio só volta com "Voltar ao mundo".'));
@@ -319,7 +334,7 @@ export class WorldService {
     }
     if (!this.stillResuming(token) || this.resumeTimer) return;
     const b = this.o.resumeBackoff ?? { minMs: UPLINK_TIMING.backoffMinMs, maxMs: UPLINK_TIMING.backoffMaxMs };
-    const asked = Math.min(RESUME_RETRY_AFTER_MAX_MS, (r.retryAfter ?? 0) * 1000);
+    const asked = Math.min(BUILDING_RETRY_AFTER_MAX_MS, (r.retryAfter ?? 0) * 1000);
     const wait = Math.max(backoffDelay(this.resumeAttempt++, this.random, b.minMs, b.maxMs), asked);
     this.resumeTimer = setTimeout(() => {
       this.resumeTimer = undefined;
@@ -332,6 +347,35 @@ export class WorldService {
   private stillResuming(token: string): boolean {
     const s = this.o.store.get();
     return !this.stopped && !!s && s.token === token && !s.paused;
+  }
+
+  /** A pausa falhou na rede: mantém o envio fechado aqui e tenta avisar o World até ele confirmar. */
+  private schedulePauseRetry(token: string, r: Outcome<unknown>): void {
+    const s = this.o.store.get();
+    if (this.stopped || !s || s.token !== token || !s.paused || s.left || this.pauseTimer) return;
+    const b = this.o.resumeBackoff ?? { minMs: UPLINK_TIMING.backoffMinMs, maxMs: UPLINK_TIMING.backoffMaxMs };
+    const asked = Math.min(BUILDING_RETRY_AFTER_MAX_MS, (r.ok ? 0 : r.retryAfter ?? 0) * 1000);
+    const wait = Math.max(backoffDelay(this.pauseAttempt++, this.random, b.minMs, b.maxMs), asked);
+    this.pauseTimer = setTimeout(() => {
+      this.pauseTimer = undefined;
+      void this.sendPause(token);
+    }, wait);
+    this.pauseTimer.unref?.();
+  }
+
+  private async sendPause(token: string): Promise<void> {
+    const s = this.o.store.get();
+    if (this.stopped || !s || s.token !== token || !s.paused || s.left) return;
+    const r = await this.queueBuilding('pause', token);
+    if (r.ok) this.pauseAttempt = 0;
+    else if (r.status === 401) this.drop('session_expired');
+    else if (retryable(r.status)) this.schedulePauseRetry(token, r);
+  }
+
+  private clearPauseRetry(): void {
+    if (this.pauseTimer) clearTimeout(this.pauseTimer);
+    this.pauseTimer = undefined;
+    this.pauseAttempt = 0;
   }
 
   private clearResumeRetry(): void {
@@ -595,6 +639,7 @@ export class WorldService {
   private drop(error: string | undefined): void {
     const had = !!this.o.store.get();
     this.stopPoll();
+    this.clearPauseRetry();
     this.clearResumeRetry();
     this.o.store.clear();
     this.me = undefined;
@@ -611,6 +656,7 @@ export class WorldService {
   private async erase(): Promise<void> {
     const had = !!this.o.store.get();
     this.stopPoll();
+    this.clearPauseRetry();
     this.clearResumeRetry();
     this.o.store.erase();
     this.me = undefined;

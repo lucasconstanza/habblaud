@@ -95,6 +95,8 @@ export interface PtyManagerOptions {
 
 /** Saída bruta guardada por terminal quando não há o @xterm/headless (ver rawScreen). */
 const MAX_SCROLLBACK = 512 * 1024;
+/** Cliente SSE que não acompanha a saída é desconectado antes de acumular memória sem limite. */
+const MAX_STREAM_BUFFERED = 8 * 1024 * 1024;
 /** Terminais encerrados continuam na lista por um tempo, para a tela final ainda poder ser vista. */
 const EXITED_KEEP_MS = 10 * 60_000;
 export const MAX_PTYS = 12;
@@ -154,7 +156,7 @@ interface Pty {
   screen: PtyScreen;
   clients: Set<ServerResponse>;
   /** Conectando: guardam a saída nova numa fila até a tela guardada ficar pronta. */
-  pending: Map<ServerResponse, string[]>;
+  pending: Map<ServerResponse, { chunks: string[]; bytes: number }>;
 }
 
 /** Sessão aberta noutro terminal, conferida: o PID e o que o sistema diz dele. */
@@ -312,7 +314,7 @@ export class PtyManager {
     });
     res.write('retry: 2000\n\n');
     // A saída que chega enquanto a tela termina de processar o que veio antes vai para a fila deste cliente.
-    const queue: string[] = [];
+    const queue = { chunks: [] as string[], bytes: 0 };
     pty.pending.set(res, queue);
     const drop = () => {
       pty.pending.delete(res);
@@ -321,11 +323,19 @@ export class PtyManager {
     req.on('close', drop);
     res.on('close', drop);
     res.on('error', drop);
+    const write = (chunk: string): boolean => {
+      if (res.writableEnded || (res.writableLength ?? 0) + Buffer.byteLength(chunk) > MAX_STREAM_BUFFERED) {
+        res.end();
+        return false;
+      }
+      res.write(chunk);
+      return true;
+    };
     pty.screen.write('', () => {
       if (!pty.pending.delete(res) || res.writableEnded) return;
-      res.write(frame('reset', pty.screen.serialize()));
-      for (const data of queue) res.write(frame('data', data));
-      if (pty.info.exitedAt !== undefined) res.write(frame('exit', { code: pty.info.exitCode ?? 0 }));
+      if (!write(frame('reset', pty.screen.serialize()))) return;
+      for (const data of queue.chunks) if (!write(frame('data', data))) return;
+      if (pty.info.exitedAt !== undefined && !write(frame('exit', { code: pty.info.exitCode ?? 0 }))) return;
       pty.clients.add(res);
     });
   }
@@ -416,7 +426,16 @@ export class PtyManager {
     this.ptys.set(id, pty);
     proc.onData((data) => {
       pty.screen.write(data);
-      for (const queue of pty.pending.values()) queue.push(data);
+      const bytes = Buffer.byteLength(data);
+      for (const [res, queue] of pty.pending) {
+        if (queue.bytes + bytes > MAX_STREAM_BUFFERED) {
+          pty.pending.delete(res);
+          res.end();
+        } else {
+          queue.chunks.push(data);
+          queue.bytes += bytes;
+        }
+      }
       this.broadcast(pty, 'data', data);
     });
     proc.onExit(({ exitCode }) => {
@@ -517,7 +536,13 @@ export class PtyManager {
 
   private broadcast(pty: Pty, event: string, data: unknown): void {
     const f = frame(event, data);
-    for (const c of pty.clients) c.write(f);
+    const bytes = Buffer.byteLength(f);
+    for (const c of pty.clients) {
+      if (c.writableEnded || (c.writableLength ?? 0) + bytes > MAX_STREAM_BUFFERED) {
+        pty.clients.delete(c);
+        c.end();
+      } else c.write(f);
+    }
   }
 }
 

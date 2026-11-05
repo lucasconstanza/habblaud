@@ -34,6 +34,13 @@ $env:HABBLAUD_WORLD = '0'
 $env:HABBLAUD_UPDATE_CHECK = '0'
 $env:HABBLAUD_PTY = '0'
 
+$whisperBin = Join-Path $projectRoot 'local/whisper/Release/whisper-cli.exe'
+$whisperModel = Join-Path $projectRoot 'local/whisper/ggml-base.bin'
+if ((Test-Path -LiteralPath $whisperBin -PathType Leaf) -and (Test-Path -LiteralPath $whisperModel -PathType Leaf)) {
+    $env:HABBLAUD_WHISPER_BIN = $whisperBin
+    $env:HABBLAUD_WHISPER_MODEL = $whisperModel
+}
+
 Start-Process -FilePath $node -ArgumentList $server -WorkingDirectory $projectRoot -WindowStyle Hidden | Out-Null
 
 for ($attempt = 0; $attempt -lt 40; $attempt++) {

@@ -5,7 +5,7 @@
 <h1 align="center">Habblaud</h1>
 
 <p align="center">
-  <b>The virtual office for your Claude Code (and Codex) agents.</b><br />
+  <b>The virtual office for your Claude Code, Codex, and Gemini CLI agents.</b><br />
   Each project becomes a room, and each agent becomes a pixel-art character that shows, in real time, what it's doing.
 </p>
 
@@ -34,9 +34,9 @@ And when two or more agents have nothing to do, the office gets a **social life*
 and they watch soccer together in the lounge, play video games and ping-pong, gossip in the kitchen, freshen up at the
 mirror and bet coins on rock-paper-scissors. See [Social life](#social-life).
 
-Everything runs on your machine, reading the files Claude Code itself already writes (plus only the `alias` lines in
-your shell, to give each account its letter). Nothing leaves the computer: Habblaud doesn't read credentials or make
-external calls.
+The local office reads files written by the tools installed on your computer. Habblaud does not read those accounts'
+credentials. Optional external features, including Habblaud World and update checks, make network requests when
+enabled; review their settings before turning them on.
 
 ## Contents
 
@@ -127,8 +127,8 @@ shrinks on its own.
 
 ### Requirements
 
-- **macOS** (tested) or Linux.
-- **[Claude Code](https://code.claude.com)** installed, with one or more accounts (2.1.287 or newer for the mod).
+- **Windows 11** (tested), macOS, or Linux.
+- At least one installed tool: **[Claude Code](https://code.claude.com)**, **Codex**, or **Gemini CLI**. The Claude Code live-usage mod requires version 2.1.287 or newer.
 - **Node.js 22.12+** and **npm** (developed with Node 24; Docker already uses Node 24).
 - **Docker Desktop** (or Docker Engine with Compose v2), if you're going to run it in a container.
 
@@ -151,7 +151,7 @@ npm install
 npm run docker:up
 ```
 
-The script detects your Claude Code accounts, mounts only the folders it needs (read-only), builds
+The script detects your local Claude Code, Codex, and Gemini CLI accounts, mounts only the folders it needs (read-only), builds
 the image and starts the container — which restarts on its own along with Docker. Open **http://localhost:4747**.
 
 **Option B — Node, without Docker**
@@ -162,6 +162,8 @@ npm start
 ```
 
 Open **http://localhost:4747**. For development, use `npm run dev` (server + Vite with hot reload).
+
+On Windows 11, see the [console-free desktop and startup shortcuts](local/README.md) to launch the office from the tray.
 
 Now open Claude Code in any project and watch your agent arrive by elevator. 🎉
 
@@ -226,7 +228,35 @@ npm run codex:status       # confere
 
 Then **open Codex and approve the Habblaud hooks in `/hooks`**: Codex only runs a new hook after you
 approve it (Habblaud never writes that approval). With Habblaud in Docker, to send messages to Codex sessions,
-also keep `npm run codex:bridge` running on the Mac (see [Codex](#codex)).
+also keep `npm run codex:bridge` running on the host computer (see [Codex](#codex)).
+
+### Gemini CLI in the office (optional)
+
+Habblaud detects `~/.gemini/tmp` and shows the Gemini CLI account and recent history from `chats/*.jsonl`.
+It uses `.project_root` to associate each conversation with its project. A **live session** appears only after
+Gemini CLI sends a local hook event; a recent chat file alone cannot prove that the CLI is still open. Preview
+the configuration before enabling it:
+
+```powershell
+npm run gemini:status
+npm run gemini:install -- --dry-run
+npm run gemini:install
+```
+
+The installer adds observational hooks to `~/.gemini/settings.json`, preserves other hooks, and backs up the file.
+Then open a new Gemini CLI session. The hook sends only session ID, project directory, local transcript path, event, and time to
+`127.0.0.1`, never prompts or responses. `npm run gemini:uninstall` removes Habblaud's hooks. The office terminal
+can read local chat history; messaging and approvals remain in Gemini CLI.
+The Gemini account card does not show 5-hour or weekly percentages: those windows belong to other tools, and
+Habblaud does not receive structured quota data from Gemini CLI. To check this session's token usage and model quota,
+run `/stats model` in Gemini CLI. The result stays in the CLI and is not captured by Habblaud's hooks.
+Rooms without an active session are
+not created. Habblaud World does not yet accept Gemini in its protocol, so these agents and rooms remain local.
+With `npm run docker:up`, Habblaud mounts **only** `~/.gemini/tmp` as read-only, without settings or credentials.
+Hooks reach the published port on the host's `127.0.0.1`; keep `HABBLAUD_BIND` local to accept them. In Docker,
+Windows paths written to `.project_root` still identify the same projects and rooms.
+If two A2A sessions in the same folder share a session ID, `transcript_path` distinguishes their characters;
+without that path, the hook cannot distinguish them until the CLI provides it.
 
 ### Open on your phone (optional)
 
@@ -659,7 +689,7 @@ Want to see the office full without having any sessions open?
 
 > **Codex** accounts come in on their own (each `~/.codex*` folder or `CODEX_HOME` is an account; the letter comes from an
 > `alias x='CODEX_HOME=… codex'`, if there is one) and their usage comes from Codex's files; see [Codex](#codex). The rest
-> of this section is about Claude Code.
+> of this section is about Claude Code. For Gemini CLI, see [Gemini CLI in the office](#gemini-cli-in-the-office-optional).
 
 If you use more than one Claude Code account (for example, a `c` shortcut with `~/.claude` and a `d` with
 `CLAUDE_CONFIG_DIR=~/.claude-conta2`), Habblaud shows them all together: each agent carries its account's chip and the top bar

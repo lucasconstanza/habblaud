@@ -138,6 +138,8 @@ export function projectWithReport(input: ProjectionInput, ids: WorldIdSource, no
   for (const r of input.rooms) if (!isDemoId(r.id)) roomIds.add(r.id);
   const byRoom = new Map<string, AgentInfo[]>();
   for (const a of input.agents) {
+    // O protocolo do World conhece apenas Claude e Codex; nunca atribua Gemini a outra ferramenta.
+    if (a.provider !== undefined && a.provider !== 'claude' && a.provider !== 'codex') continue;
     if (isDemoId(a.id) || isDemoId(a.roomId) || !roomIds.has(a.roomId)) continue;
     if ((a.kind !== 'main' && a.kind !== 'sub') || !isWorldStatus(a.status)) continue;
     const list = byRoom.get(a.roomId);

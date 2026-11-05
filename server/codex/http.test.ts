@@ -72,6 +72,21 @@ describe('POST /api/codex/events', () => {
     ]);
   });
 
+  it('identifica a conta pelo CODEX_HOME do Windows mesmo com barras e caixa diferentes', async () => {
+    const calls: Array<string | undefined> = [];
+    const { base, accounts } = await serve({ applyHookEvent: (a) => (calls.push(a), true) });
+    accounts.setProviderAccounts('codex', [
+      { dir: '/montada/a', detected: { id: '.codex', configDir: 'C:/Exemplo/.codex', short: 'A', name: 'Codex A', color: '#000' } },
+      { dir: '/montada/b', detected: { id: '.codex-work', configDir: 'C:/Exemplo/.codex-work', short: 'B', name: 'Codex B', color: '#111' } },
+    ]);
+    const r = await request(base, '/api/codex/events', {
+      method: 'POST',
+      body: { account: '.codex', codexHome: 'c:\\EXEMPLO\\.CODEX-WORK\\', event: EVENT },
+    });
+    expect(r).toMatchObject({ status: 200, json: { ok: true } });
+    expect(calls).toEqual(['.codex-work']);
+  });
+
   it('sem a fonte do Codex (ou se ela falha): 200 {ok: false}', async () => {
     let s = await serve();
     expect(await request(s.base, '/api/codex/events', { method: 'POST', body: { event: EVENT } })).toMatchObject({ status: 200, json: { ok: false } });

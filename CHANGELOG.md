@@ -10,6 +10,39 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Gemini CLI no escritório local e no Docker.** A terceira conta aparece com histórico e presença baseada nos hooks
+  da CLI. O Docker monta só `~/.gemini/tmp` em leitura, sem credenciais. Agentes do Claude Code, Codex e Gemini CLI na
+  mesma pasta compartilham uma sala enquanto houver sessão ativa.
+- **Verificação no Windows.** A integração contínua agora roda typecheck, traduções, testes e build também no Windows.
+
+### Corrigido
+
+- **Cartão do Gemini CLI.** Mostra a consulta `/stats model` da própria CLI para cota por modelo, sem aplicar as instruções de instalação ou as janelas de 5 horas e semana do Claude Code.
+- **Uso antigo do Claude Code.** Percentuais de uma leitura desatualizada ficam apenas na dica; barras e números atuais aparecem como desconhecidos. Quando o mod ou o tap já capturou uso, o cartão orienta a retomar a sessão em vez de reinstalar a integração.
+- **Hooks do Gemini no Windows.** O instalador usa a sintaxe de chamada do PowerShell para executar o Node em um caminho entre aspas; o comando anterior gerava `ParserError` e não observava as sessões.
+- **Segurança de dados locais.** A porta Docker exposta não aceita rotas do World, eventos de agentes ou mudanças do
+  modo demonstração com um cabeçalho `Host` forjado. Tokens do World e segredos do acesso remoto recebem ACL restrita
+  no Windows, assim como a configuração e os backups do Gemini e o override do Docker. Respostas grandes do World e
+  clientes lentos do terminal têm limites de memória. Hooks locais continuam funcionando quando o terminal é
+  desligado manualmente, desde que a porta Docker permaneça privada.
+- **World.** Pausar o prédio espera a confirmação do servidor e tenta novamente se a rede falhar. O Gemini CLI fica
+  fora do envio ao World até existir suporte explícito no protocolo.
+- **Salas e contas no Windows.** Variações de caixa, barras e segmentos de caminho não duplicam salas nem associam
+  eventos do Codex à conta errada. Nomes antigos dos personagens são migrados com conflitos preservados.
+- **Interface e arquivos.** Fechar o painel cancela um ditado ainda aguardando permissão; “Novo agente” seleciona a
+  pasta recebida depois do primeiro carregamento; links, anexos e cache das entregas funcionam com caminhos Windows,
+  inclusive URLs `file:///C:/...` lidas pelo servidor Docker.
+  A abertura do aplicativo Claude preserva os parâmetros do link no Windows.
+- **Configuração local.** A descoberta do Whisper reconhece executáveis Windows, o status do mod Claude funciona com
+  a instalação npm local e textos multilinha são localizados corretamente com finais de linha Windows. Wrappers
+  `.cmd` do Whisper são recusados porque não podem ser executados diretamente.
+- **Atalhos do Windows.** Abrir o escritório ou iniciar a bandeja usa um lançador sem console; os atalhos antigos podem
+  ser reparados com prévia e backup, sem criar uma janela preta do Windows Terminal.
+- **Histórico Gemini.** IDs curtos ou repetidos da CLI não confundem projetos nem uma conversa antiga com uma sessão
+  recém-aberta. Sessões simultâneas com o mesmo ID são distinguidas pelo caminho do transcript quando ele vem no hook.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido

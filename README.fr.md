@@ -5,7 +5,7 @@
 <h1 align="center">Habblaud</h1>
 
 <p align="center">
-  <b>Le bureau virtuel de vos agents Claude Code (et Codex).</b><br />
+  <b>Le bureau virtuel de vos agents Claude Code, Codex et Gemini CLI.</b><br />
   Chaque projet devient une salle, chaque agent un personnage en pixel art qui montre, en temps réel, ce qu'il est en train de faire.
 </p>
 
@@ -232,6 +232,22 @@ npm run codex:status       # confere
 Ensuite, **ouvrez Codex et validez les hooks de Habblaud dans `/hooks`** : Codex n'exécute un nouveau hook qu'après
 votre validation (Habblaud n'enregistre jamais cette validation à votre place). Avec Habblaud dans Docker, pour envoyer
 des messages aux sessions Codex, laissez aussi tourner `npm run codex:bridge` sur le Mac (voir [Codex](#codex)).
+
+### 5. Gemini CLI dans le bureau (facultatif)
+
+Habblaud détecte `~/.gemini/tmp` et affiche le compte et l'historique de Gemini CLI. Dans Docker, `npm run docker:up`
+monte uniquement ce dossier en lecture seule ; les identifiants restent sur l'ordinateur. Une conversation récente
+ne prouve pas qu'une session soit encore ouverte : les agents apparaissent seulement après les événements des hooks.
+
+```bash
+npm run gemini:install -- --dry-run
+npm run gemini:install
+npm run gemini:status
+```
+
+L'installateur conserve les autres hooks et sauvegarde `settings.json`. Le hook envoie au Habblaud local l'ID, le
+dossier, l'événement, l'heure et le chemin du transcript, sans prompts ni réponses. Les salles vides ne sont pas
+créées. Le protocole de Habblaud World ne prend pas encore en charge Gemini CLI.
 
 ### Ouvrir sur le téléphone (facultatif)
 

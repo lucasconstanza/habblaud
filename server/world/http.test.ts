@@ -260,7 +260,7 @@ describe('docker-compose.yml', () => {
 
   it('o container acha o host em host.docker.internal (servidor do mundo local, também no Linux)', () => {
     const compose = readFileSync(join(import.meta.dirname, '..', '..', 'docker-compose.yml'), 'utf8');
-    expect(compose).toMatch(/^ {4}extra_hosts:\n {6}- "host\.docker\.internal:host-gateway"$/m);
+    expect(compose).toMatch(/^ {4}extra_hosts:\r?\n {6}- "host\.docker\.internal:host-gateway"$/m);
   });
 });
 
@@ -375,7 +375,7 @@ describe('de ponta a ponta com o servidor do mundo de mentira', () => {
     const ver = await call(s.base, 'POST', '/api/world/verify', { email: EMAIL, code: `${FAKE_CODE.slice(0, 3)} ${FAKE_CODE.slice(3)}` });
     expect(ver.status).toBe(200);
     expect(ver.body).toMatchObject({ available: true, configured: true, state: 'waiting', account: { emailMasked: 'a***@exemplo.com', access: 'waiting' } });
-    expect(statSync(s.file).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect(statSync(s.file).mode & 0o777).toBe(0o600);
     const first = JSON.parse(readFileSync(s.file, 'utf8'));
     expect(first).toMatchObject({ deviceId: 'dev_1', email: EMAIL, access: 'waiting' });
     expect(snap()).toEqual({ enabled: true, configured: true, state: 'waiting' });
@@ -441,7 +441,7 @@ describe('de ponta a ponta com o servidor do mundo de mentira', () => {
     for (const token of [first.token, second.token]) {
       for (const text of [...seen, ...snapshots, ...logs]) expect(text).not.toContain(token);
     }
-  });
+  }, 15_000);
 
   it('conta antiga, sem reserva: criar o personagem exige o name (e ele vai no pedido)', async () => {
     const s = await start();
@@ -473,9 +473,12 @@ describe('de ponta a ponta com o servidor do mundo de mentira', () => {
 
   it('servidor do mundo fora do ar: status com o que se sabe e lastError; sair apaga daqui mesmo assim', async () => {
     const s = await start({ meTtlMs: 0 });
-    await call(s.base, 'POST', '/api/world/register', REGISTER);
-    await call(s.base, 'POST', '/api/world/verify', { email: EMAIL, code: FAKE_CODE });
-    await call(s.base, 'PUT', '/api/world/character', CHARACTER);
+    const registration = await call(s.base, 'POST', '/api/world/register', REGISTER);
+    expect(registration.status, JSON.stringify(registration.body)).toBe(202);
+    const verification = await call(s.base, 'POST', '/api/world/verify', { email: EMAIL, code: FAKE_CODE });
+    expect(verification.status, JSON.stringify(verification.body)).toBe(200);
+    const character = await call(s.base, 'PUT', '/api/world/character', CHARACTER);
+    expect(character.status, JSON.stringify(character.body)).toBe(200);
     await s.world!.close();
     const st = await call(s.base, 'GET', '/api/world/status?refresh=1');
     expect(st.body).toMatchObject({ state: 'waiting', account: { access: 'waiting' }, player: { name: 'Ana Pixel' }, lastError: 'network' });
@@ -584,7 +587,7 @@ describe('o prédio no mundo (uplink) pelas rotas', () => {
     const last = (await call(s.base, 'GET', '/api/world/last-uplink')).body;
     expect(last).toEqual({ at: st.building.lastUplinkAt, bytes: w.ws.uplinks[0].bytes, uplink: w.ws.uplinks[0].uplink, ack: { ok: true, at: expect.any(Number), bytes: w.ws.uplinks[0].bytes } });
     expect(JSON.stringify(last)).not.toMatch(/projeto-secreto|Users|\.claude|sess-x/);
-    expect(statSync(s.lastFile).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect(statSync(s.lastFile).mode & 0o777).toBe(0o600);
 
     // Tema: grava e manda o pacote com o tema novo; fora da lista, 422.
     expect((await call(s.base, 'PUT', '/api/world/theme', { theme: 'christmas' })).body).toEqual({ theme: 'christmas' });
@@ -1059,9 +1062,12 @@ describe('a conta e os dados (Fase 6)', () => {
     const w = s.world!;
     if (opts.building) w.ws.options.building = opts.building;
     s.office.addMain({ id: '.claude:6', account: '.claude', sessionId: 'sess-6', cwd: '/p/f6', role: 'Agente principal', startedAt: Date.now(), status: 'working' });
-    await call(s.base, 'POST', '/api/world/register', REGISTER);
-    await call(s.base, 'POST', '/api/world/verify', { email: EMAIL, code: FAKE_CODE });
-    await call(s.base, 'PUT', '/api/world/character', CHARACTER);
+    const registration = await call(s.base, 'POST', '/api/world/register', REGISTER);
+    expect(registration.status, JSON.stringify(registration.body)).toBe(202);
+    const verification = await call(s.base, 'POST', '/api/world/verify', { email: EMAIL, code: FAKE_CODE });
+    expect(verification.status, JSON.stringify(verification.body)).toBe(200);
+    const character = await call(s.base, 'PUT', '/api/world/character', CHARACTER);
+    expect(character.status, JSON.stringify(character.body)).toBe(200);
     w.accounts.get(EMAIL)!.access = 'approved';
     await call(s.base, 'GET', '/api/world/status?refresh=1');
     await waitFor(() => w.ws.uplinks.length === 1 && existsSync(s.lastFile), 'primeira remessa');

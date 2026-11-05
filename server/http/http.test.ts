@@ -193,6 +193,38 @@ describe('API HTTP', () => {
     expect((await fetch(`${env.base}/api/demo`)).status).toBe(405);
   });
 
+  it('porta Docker exposta não aceita ações locais com Host forjado', async () => {
+    const world = vi.fn((_req: http.IncomingMessage, res: http.ServerResponse) => res.end('world'));
+    const exposed = await start({ inDocker: true, privateBind: false, terminal: false, world });
+    try {
+      const headers = { ...JSON_HEADERS, Host: `localhost:${new URL(exposed.base).port}` };
+      expect((await raw(exposed.base, '/api/world/export', { headers })).status).toBe(403);
+      expect(world).not.toHaveBeenCalled();
+      expect((await raw(exposed.base, '/api/codex/events', { method: 'POST', headers, body: '{"event":{"hook_event_name":"SessionStart"}}' })).status).toBe(403);
+      expect((await raw(exposed.base, '/api/gemini/events', { method: 'POST', headers, body: '{}' })).status).toBe(403);
+      expect((await raw(exposed.base, '/api/demo', { method: 'POST', headers, body: '{"enabled":true}' })).status).toBe(403);
+      expect((await snapshotOf(exposed.base)).meta.demo).toBe(false);
+    } finally {
+      await exposed.close();
+      exposed.cleanup();
+    }
+  });
+
+  it('porta Docker privada aceita hooks observacionais mesmo com terminal desligado', async () => {
+    const world = vi.fn((_req: http.IncomingMessage, res: http.ServerResponse) => res.end('world'));
+    const local = await start({ inDocker: true, privateBind: true, terminal: false, world });
+    try {
+      const headers = { ...JSON_HEADERS, Host: `localhost:${new URL(local.base).port}` };
+      expect((await raw(local.base, '/api/world/status', { headers })).status).toBe(200);
+      expect(world).toHaveBeenCalledOnce();
+      expect((await raw(local.base, '/api/codex/events', { method: 'POST', headers, body: '{"event":{"hook_event_name":"SessionStart"}}' })).status).toBe(200);
+      expect((await raw(local.base, '/api/gemini/events', { method: 'POST', headers, body: '{}' })).status).toBe(404);
+    } finally {
+      await local.close();
+      local.cleanup();
+    }
+  });
+
   it('DNS rebinding: Host de outro domínio é recusado em qualquer rota', async () => {
     const port = new URL(env.base).port;
     for (const path of ['/api/snapshot', '/api/stream', '/', '/bundle/main-abc12345.js']) {

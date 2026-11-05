@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AccountInfo } from '../../../shared/types';
-import { cardState, codexUsageNote, showsUsageAge, sourceLabel, usageMessage, usageSubtitle } from './usage';
+import { cardState, claudeLiveCaptureNote, codexUsageNote, geminiUsageNote, showsUsageAge, sourceLabel, staleMeterDisplay, usageMessage, usageSubtitle } from './usage';
 
 const MIN = 60_000;
 type Acc = Pick<AccountInfo, 'usage' | 'usageStatus' | 'provider' | 'email' | 'plan' | 'configDir'>;
@@ -14,6 +14,25 @@ describe('sourceLabel', () => {
     expect(sourceLabel({ source: 'statusline', fetchedAt: 0 })).toBe('ao vivo (statusline do Claude Code)');
     expect(sourceLabel({ source: 'cache', fetchedAt: 0 })).toBe('cache do /usage do Claude Code');
     expect(sourceLabel({ source: 'codex', fetchedAt: 0 })).toBe('arquivos do Codex');
+  });
+});
+
+describe('orientação por conta', () => {
+  it('explica a última captura do mod sem tratar o cache posterior como prova de uso ao vivo', () => {
+    expect(claudeLiveCaptureNote({ lastLiveUsage: { via: 'mod', fetchedAt: 0 } }, 2 * 60 * MIN)).toContain('O mod do Habblaud já capturou uso nesta conta (há 2 h).');
+    expect(claudeLiveCaptureNote({ lastLiveUsage: { via: 'tap', fetchedAt: 0 } }, 2 * 60 * MIN)).toContain('O tap de statusline já capturou uso nesta conta (há 2 h).');
+    expect(claudeLiveCaptureNote({}, 0)).toBe('');
+  });
+
+  it('retira percentual e preenchimento da barra stale; preserva o valor histórico somente na dica', () => {
+    const view = { pct: 100, renewed: false, reset: '', resetShort: '', summary: '100% usado' };
+    expect(staleMeterDisplay(view, 'Semana')).toEqual({ pct: '—', barPct: '0', label: 'Semana: última leitura 100% usado. Uso atual desconhecido.' });
+    expect(staleMeterDisplay({ ...view, pct: null, renewed: true }, 'Semana')).toBeNull();
+  });
+
+  it('Gemini orienta a consultar a cota na própria CLI sem inventar janelas de 5 h/semana', () => {
+    expect(usageMessage({ provider: 'gemini', usageStatus: 'disabled' })).toEqual(['Cota no Gemini CLI', 'Ver cota na CLI']);
+    expect(geminiUsageNote()).toContain('/stats model');
   });
 });
 

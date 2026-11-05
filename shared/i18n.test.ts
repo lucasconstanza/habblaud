@@ -38,6 +38,13 @@ describe('i18n', () => {
     expect(intlLocale()).toBe('fr-FR');
   });
 
+  it('traduz texto multilinha também num checkout Windows com CRLF', () => {
+    const key = Object.keys(EN).find((k) => k.includes('\n'));
+    expect(key).toBeDefined();
+    setLocale('en');
+    expect(tr(key!.replace(/\n/g, '\r\n'))).toBe(EN[key!]);
+  });
+
   it('lacunas sem argumento ficam como estão (as nomeadas são preenchidas por quem chama)', () => {
     expect(tr('Ganhei de {a} a {b}! 🏆')).toBe('Ganhei de {a} a {b}! 🏆');
     expect(tr('{0} e {1}', ['um'])).toBe('um e {1}');

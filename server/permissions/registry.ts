@@ -168,7 +168,7 @@ function isIndex(v: unknown): v is number {
 
 /** Pedido que se responde com `answer` (as perguntas do AskUserQuestion; o Codex não as manda pelo hook). */
 function isQuestion(info: { tool: string; provider?: string }): boolean {
-  return info.tool === ASK_TOOL && info.provider !== 'codex';
+  return info.tool === ASK_TOOL && (info.provider === undefined || info.provider === 'claude');
 }
 
 /** O Codex não aceita interromper nem "sempre permitir" (o hook dele só aprova ou recusa com motivo). */
@@ -572,9 +572,9 @@ export class PermissionRegistry {
     if (agentId) {
       const subId = `${sessionId}:${agentId}`;
       const sub = office.get(subId);
-      if (present(sub) && sub.provider !== 'codex') return { id: subId };
+      if (present(sub) && (sub.provider === undefined || sub.provider === 'claude')) return { id: subId };
     }
-    const main = office.list().find((a) => a.kind === 'main' && a.provider !== 'codex' && a.sessionId === sessionId && a.status !== 'offline');
+    const main = office.list().find((a) => a.kind === 'main' && (a.provider === undefined || a.provider === 'claude') && a.sessionId === sessionId && a.status !== 'offline');
     if (!main) return undefined;
     return agentId ? { id: main.id, subagent: agentType ?? tr('subagente') } : { id: main.id };
   }

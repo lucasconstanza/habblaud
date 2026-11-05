@@ -322,6 +322,16 @@ describe('projeção: regras', () => {
     expect(agentsOf(u).map((a) => a.provider).sort()).toEqual(['claude', 'codex']);
   });
 
+  it('Gemini CLI nunca sobe ao World como Claude nem cria andar sozinho', () => {
+    const geminiOnly = project(input([room('/p/gemini')], [agent('g1', '/p/gemini', { provider: 'gemini', account: '.gemini' })]), new FakeIds(), NOW);
+    expect(geminiOnly.floors).toEqual([]);
+    const ids = new FakeIds();
+    const mixed = project(input([room('/p/misto')], [agent('c1', '/p/misto', { provider: 'codex' }), agent('g2', '/p/misto', { provider: 'gemini', account: '.gemini' })]), ids, NOW);
+    expect(agentsOf(mixed).map((a) => a.provider)).toEqual(['codex']);
+    expect(ids.calls).not.toContain('g2');
+    expect(validate(mixed)).toEqual([]);
+  });
+
   it('tokens só com tokensVisible, arredondados a 2 algarismos', () => {
     const base = input([room('/p/a')], [agent('m1', '/p/a')], { tokens: { day: 1_234_567, week: 98_765_432.7 } });
     expect(project(base, new FakeIds(), NOW).tokens).toEqual({ day: 1_200_000, week: 99_000_000 });

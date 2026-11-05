@@ -6,7 +6,7 @@ import http from 'node:http';
 import { join } from 'node:path';
 import { codexDirsRefused, isDefaultDir } from './accounts/detect';
 import { AccountsService } from './accounts/service';
-import { isTruthy, loadConfig, messagesOffReason, terminalOffReason, worldSocketUrl } from './config';
+import { isLoopbackBind, isTruthy, loadConfig, messagesOffReason, terminalOffReason, worldSocketUrl } from './config';
 import { createApiHandler, sendJson } from './http/app';
 import { createRequestGuard, isLoopbackHost } from './http/guard';
 import { createRemoteGate, isRemoteRequest, loadSecret, RemoteSessions, startRemoteListener, type RemoteListener } from './http/remote';
@@ -37,6 +37,8 @@ import { ClaudeWatcher } from './sources/watcher';
 import { discoverCodexDirs } from './sources/codex/accounts';
 import { CodexHistory } from './sources/codex/history';
 import { CodexSource } from './sources/codex/source';
+import { discoverGeminiDir } from './sources/gemini/accounts';
+import { GeminiSource } from './sources/gemini/source';
 import { createBuildReader, readBuildInfo } from './build';
 import { UpdateChecker } from './updates/checker';
 import { getLocale, tr } from '../shared/i18n';
@@ -138,6 +140,9 @@ const agents = new SourceSet([claude]);
 const codexDirs = config.codex ? discoverCodexDirs(process.env, config.home) : [];
 const codex = codexDirs.length ? new CodexSource({ accounts, office, dirs: codexDirs, env: process.env, home: config.home }) : undefined;
 if (codex) agents.add(codex);
+const geminiDir = process.env.HABBLAUD_GEMINI === '0' ? undefined : discoverGeminiDir(process.env, config.home);
+const gemini = geminiDir ? new GeminiSource({ accounts, office, dir: geminiDir, inDocker: config.inDocker }) : undefined;
+if (gemini) agents.add(gemini);
 // Eventos dos hooks do Codex (POST /api/codex/events, mod/habblaud-codex/hook.mjs): vão para a fonte do Codex ao vivo
 // (CodexLive); sem ela (nenhuma pasta do Codex ou HABBLAUD_CODEX=0) a rota responde {ok: false}.
 const codexLive: CodexLive | undefined = codex;
@@ -196,6 +201,7 @@ const history = config.terminal
   ? new HistorySet([new SessionHistory({ accounts: () => accounts.entries(), openAgentOf: (acc, sid) => openMainAgent(office.list(), acc, sid) })])
   : undefined;
 if (history && codex) history.add(new CodexHistory({ accounts: () => accounts.entriesOf('codex'), openAgentOf: (acc, sid) => openMainAgent(office.list(), acc, sid) }));
+if (history && gemini) history.add(gemini.history);
 // Entregas: o fim de cada pedido, lido dos transcripts do histórico (mesma trava do terminal). Os arquivos entregues
 // são lidos aqui (Node, ou pasta de conta montada no Docker) ou pelo auxiliar do host.
 const deliveries = history
@@ -352,6 +358,7 @@ const api = createApiHandler({
   sources: () => agents.sources(),
   version: config.version,
   inDocker: config.inDocker,
+  privateBind: config.inDocker ? isLoopbackBind(process.env.HABBLAUD_BIND) : isLoopbackBind(config.host),
   terminal: config.terminal,
   terminals,
   sessions: history,
@@ -372,6 +379,7 @@ const api = createApiHandler({
     return recentFolders(history ? await history.list().catch(() => []) : [], rooms);
   },
   codexLive,
+  geminiLive: gemini,
   stats,
   updates,
   remote: config.remote ? { is: isRemoteRequest, allows: (f) => config.remote!.allow.has(f) } : undefined,
@@ -491,6 +499,7 @@ server.listen(config.port, config.host, () => {
   } else {
     log.info(tr('   Codex: {0}.', [config.codex ? tr('nenhuma pasta do Codex encontrada (defina HABBLAUD_CODEX_DIRS)') : tr('desligado (HABBLAUD_CODEX=0)')]));
   }
+  if (gemini) log.info(tr('   Gemini CLI: conta {0}, {1} sessão(ões) confirmada(s) por hook.', [gemini.accountEntry().id, gemini.sources()[0].sessions]));
   if (office.isDemo()) log.info(tr('   Modo demonstração ligado (agentes simulados misturados aos reais).'));
   if (config.terminal) log.info(tr('   Terminal: ligado (acesso só local).'));
   else log.info(tr('   Terminal: desligado ({0}).', [terminalOffReason(process.env, config.host, config.inDocker)]));

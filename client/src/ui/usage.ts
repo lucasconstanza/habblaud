@@ -1,9 +1,10 @@
 // Cartões de USO POR CONTA na barra superior: sessão de 5 horas e semanal, com reinício e origem dos números.
 // Regras de apresentação:
 // - número velho nunca passa por atual: janela que já renovou depois da leitura mostra "—" e "renovada";
-//   números antigos ficam acinzentados com a idade ("há 6 d") no cabeçalho ou, no celular, um selo no chip;
+//   leitura stale mostra "—" nas barras e preserva o número histórico, com idade, só na dica;
 // - o reinício vem com verbo implícito no ícone ↻ e contagem regressiva quando falta menos de um dia;
-// - conta sem números diz "sem dados de uso" e oferece "Como ativar" (mod do Habblaud, recomendado).
+// - conta Claude sem números diz "sem dados de uso"; a dica de instalação só aparece sem captura prévia do mod/tap.
+//   Gemini mostra como consultar a cota na própria CLI, sem supor janelas de 5 h/semana.
 // Conta do Codex: os números vêm dos arquivos de sessão dele, que só se renovam enquanto alguma sessão roda; por isso
 // a idade ("há 12 min") fica sempre à mostra. Sem cota nem créditos ("sem cota") nunca vira 0%. Não há o que
 // instalar para o uso: "Como funciona" abre a ajuda na seção do Codex. Sem Opus/Sonnet nem e-mail (só o plano).
@@ -12,7 +13,7 @@ import type { UiContext } from './context';
 import { h, KeyedList, setAttr, setHidden, setStyleVar, setText, setTitle, setVariant } from './dom';
 import { FIVE_HOURS_MS, relativeTime, usageLevel, usageWindowView, WEEK_MS, type UsageWindowView } from './format';
 import { ICONS } from './icons';
-import { isCodex } from './provider';
+import { isCodex, providerOf } from './provider';
 import { usageRowFits } from './usage-row';
 import { createAccountChip, createProviderTag, updateAccountChip, updateProviderTag } from './widgets';
 import { tr } from '../../../shared/i18n';
@@ -101,7 +102,25 @@ function createMeter(long: string, short: string, title: string): Meter {
   return { el, bar, pct, reset, resetLong, resetShort };
 }
 
-function updateMeter(m: Meter, view: UsageWindowView | null, windowName: string): void {
+/** Uma leitura stale não pode colorir a barra nem mostrar um percentual como se fosse atual. */
+export function staleMeterDisplay(view: UsageWindowView | null, windowName: string): { pct: string; barPct: string; label: string } | null {
+  if (!view || view.pct === null) return null;
+  return { pct: '—', barPct: '0', label: tr('{0}: última leitura {1}. Uso atual desconhecido.', [windowName, view.summary]) };
+}
+
+function updateMeter(m: Meter, view: UsageWindowView | null, windowName: string, stale = false): void {
+  const historic = stale ? staleMeterDisplay(view, windowName) : null;
+  if (historic) {
+    setVariant(m.el, 'is-', 'none');
+    m.el.classList.remove('is-zero', 'is-renewed');
+    setStyleVar(m.bar, '--pct', historic.barPct);
+    setText(m.pct, historic.pct);
+    setText(m.resetLong, '');
+    setText(m.resetShort, '');
+    setAttr(m.el, 'aria-label', historic.label);
+    setTitle(m.el, historic.label);
+    return;
+  }
   if (!view || view.pct === null) {
     setVariant(m.el, 'is-', 'none');
     m.el.classList.remove('is-zero');
@@ -186,7 +205,23 @@ export function usageMessage(a: Pick<AccountInfo, 'usage' | 'usageStatus' | 'pro
   const state = cardState(a);
   if (state === 'noquota') return [tr('sem cota'), tr('sem cota')];
   if (isCodex(a)) return [tr('sem dados ainda'), tr('sem dados')];
+  if (providerOf(a) === 'gemini') return [tr('Cota no Gemini CLI'), tr('Ver cota na CLI')];
   return [tr('sem dados de uso'), tr('sem dados')];
+}
+
+/** A CLI do Gemini não entrega ao Habblaud cotas por modelo; o comando mostra os números na própria CLI. */
+export function geminiUsageNote(): string {
+  return tr('No Gemini CLI, rode `/stats model` para consultar a cota por modelo. O Habblaud não recebe esses números da CLI.');
+}
+
+/** Uma captura prévia do mod/tap confirma apenas que já houve uso local, não que o número atual esteja disponível. */
+export function claudeLiveCaptureNote(a: Pick<AccountInfo, 'lastLiveUsage'>, now: number): string {
+  const live = a.lastLiveUsage;
+  if (!live) return '';
+  const age = relativeTime(live.fetchedAt, now);
+  return live.via === 'mod'
+    ? tr('O mod do Habblaud já capturou uso nesta conta ({0}). Abra uma sessão do Claude Code desta conta para receber novos números; se já estiver aberta, rode `/reload-plugins`.', [age])
+    : tr('O tap de statusline já capturou uso nesta conta ({0}). Abra ou continue uma sessão do Claude Code desta conta para receber novos números.', [age]);
 }
 
 /** Explicação do cartão de uma conta do Codex (dica); '' nas outras. */
@@ -337,23 +372,24 @@ export class UsageCards {
     const r = this.refs.get(card)!;
     const now = this.ctx.now();
     const codex = isCodex(a);
+    const gemini = providerOf(a) === 'gemini';
     updateAccountChip(r.chip, a);
     setStyleVar(card, '--acc', a.color);
     setText(r.name, a.name);
-    updateProviderTag(r.prov, codex ? 'codex' : 'claude', a.name);
+    updateProviderTag(r.prov, providerOf(a), a.name);
     setText(r.email, usageSubtitle(a));
-    setAttr(card, 'aria-label', tr('{0}{1}: uso do plano', [a.name, codex ? ' (Codex)' : '']));
+    setAttr(card, 'aria-label', gemini ? tr('{0}: cota no Gemini CLI', [a.name]) : tr('{0}{1}: uso do plano', [a.name, codex ? ' (Codex)' : '']));
 
     const usage = a.usage;
     const state = cardState(a);
     setVariant(card, 'is-', state);
     const five = usage ? usageWindowView(usage.fiveHour, usage.fetchedAt, now, FIVE_HOURS_MS) : null;
     const week = usage ? usageWindowView(usage.sevenDay, usage.fetchedAt, now, WEEK_MS) : null;
-    const showMeters = hasWindows(a);
+    const showMeters = !gemini && hasWindows(a);
     setHidden(r.meters, !showMeters);
     if (usage && showMeters) {
-      updateMeter(r.five, five, tr('Sessão de 5 horas'));
-      updateMeter(r.week, week, tr('Semana'));
+      updateMeter(r.five, five, tr('Sessão de 5 horas'), state === 'stale');
+      updateMeter(r.week, week, tr('Semana'), state === 'stale');
     }
     r.meters.classList.toggle('is-dim', state !== 'ok');
 
@@ -381,7 +417,7 @@ export class UsageCards {
     setText(r.msgLong, msgLong);
     setText(r.msgShort, msgShort);
     setHidden(r.msg, state !== 'empty' && state !== 'noquota');
-    setHidden(r.how, state === 'noquota');
+    setHidden(r.how, state === 'noquota' || gemini);
     r.msg.classList.toggle('is-noquota', state === 'noquota');
     setTitle(r.msg, state === 'noquota' ? codexUsageNote(a, now) : '');
     setText(r.howLong, codex ? tr('Como funciona') : tr('Como ativar'));
@@ -393,6 +429,7 @@ export class UsageCards {
 
   private updateTip(r: CardRefs, a: AccountInfo, state: CardState, five: UsageWindowView | null, week: UsageWindowView | null, now: number): void {
     const codex = isCodex(a);
+    const gemini = providerOf(a) === 'gemini';
     setText(r.tipTitle, `${a.name}${codex && !/codex/i.test(a.name) ? ' · Codex' : ''}${a.plan ? tr(' · plano {0}', [a.plan]) : ''}`);
     const rows: [string, string][] = [];
     if (codex) rows.push([tr('Ferramenta'), 'Codex']);
@@ -402,21 +439,28 @@ export class UsageCards {
     rows.push([tr('Pasta'), a.configDir]);
     rows.push([tr('Sessões abertas'), String(a.sessions)]);
     const u = a.usage;
-    if (u && (u.fiveHour || u.sevenDay)) {
-      rows.push([tr('Sessão de 5 h'), five?.summary ?? '—']);
-      rows.push([tr('Semana'), week?.summary ?? '—']);
+    if (!gemini && u && (u.fiveHour || u.sevenDay)) {
+      rows.push([tr('Sessão de 5 h'), state === 'stale' && five ? tr('Última leitura: {0}', [five.summary]) : five?.summary ?? '—']);
+      rows.push([tr('Semana'), state === 'stale' && week ? tr('Última leitura: {0}', [week.summary]) : week?.summary ?? '—']);
       // Opus e Sonnet são janelas do Claude: no Codex não existem.
       const opus = codex ? null : usageWindowView(u.sevenDayOpus, u.fetchedAt, now, WEEK_MS);
       const sonnet = codex ? null : usageWindowView(u.sevenDaySonnet, u.fetchedAt, now, WEEK_MS);
       if (opus) rows.push([tr('Opus (semana)'), opus.summary]);
       if (sonnet) rows.push([tr('Sonnet (semana)'), sonnet.summary]);
     }
-    if (u && state === 'noquota') rows.push([tr('Cota'), tr('sem cota nem créditos agora')]);
-    if (u && (state !== 'empty' || codex)) {
+    if (!gemini && u && state === 'noquota') rows.push([tr('Cota'), tr('sem cota nem créditos agora')]);
+    if (!gemini && u && (state !== 'empty' || codex)) {
       rows.push([tr('Origem'), sourceLabel(u)]);
       rows.push([tr('Atualizado'), relativeTime(u.fetchedAt, now)]);
     }
     syncRows(r.tipRows, rows);
+
+    if (gemini) {
+      setText(r.tipNote, geminiUsageNote());
+      setHidden(r.tipNote, false);
+      setHidden(r.tipSetup, true);
+      return;
+    }
 
     // Codex: a explicação dele, sem o passo a passo do Claude Code (não há o que instalar para o uso).
     if (codex) {
@@ -429,14 +473,14 @@ export class UsageCards {
 
     let note = '';
     if (state === 'empty')
-      note = u ? tr('A última leitura ({0}, {1}) não trouxe números de 5 h nem da semana.', [sourceLabel(u), relativeTime(u.fetchedAt, now)]) : tr('Ainda não há números de uso para esta conta.');
-    else if (state === 'stale') note = tr('Números antigos: refletem a última leitura, não o uso de agora.');
+      note = claudeLiveCaptureNote(a, now) || (u ? tr('A última leitura ({0}, {1}) não trouxe números de 5 h nem da semana.', [sourceLabel(u), relativeTime(u.fetchedAt, now)]) : tr('Ainda não há números de uso para esta conta.'));
+    else if (state === 'stale') note = claudeLiveCaptureNote(a, now) || tr('Números antigos: refletem a última leitura, não o uso de agora.');
     else if (u?.source === 'cache') note = tr('Cache do /usage: atualiza quando alguém roda /usage nesta conta.');
     else if (five?.renewed || week?.renewed) note = tr('Uma das janelas já reiniciou depois da última leitura.');
     setText(r.tipNote, note);
     setHidden(r.tipNote, !note);
     // O passo a passo aparece sempre que os números não são ao vivo.
     const live = u?.source === 'statusline' && state === 'ok';
-    setHidden(r.tipSetup, live);
+    setHidden(r.tipSetup, live || !!a.lastLiveUsage);
   }
 }

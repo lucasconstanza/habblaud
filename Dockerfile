@@ -1,10 +1,10 @@
 # syntax=docker/dockerfile:1
 #
-# Habblaud em container: escritório virtual dos agentes do Claude Code.
+# Habblaud em container: escritório virtual dos agentes do Claude Code, Codex e Gemini CLI.
 #
-# Use `npm run docker:up` (scripts/docker-up.ts): ele detecta as contas do Claude Code no host,
-# gera o docker-compose.override.yml com as montagens SOMENTE LEITURA de <conta>/projects,
-# <conta>/sessions e ~/.habblaud/usage e sobe o serviço. Este Dockerfile sozinho não monta nada do host.
+# Use `npm run docker:up` (scripts/docker-up.ts): ele detecta as contas das ferramentas no host,
+# gera o docker-compose.override.yml com montagens SOMENTE LEITURA dos históricos necessários
+# e de ~/.habblaud/usage, e sobe o serviço. Este Dockerfile sozinho não monta nada do host.
 
 # ---------------------------------------------------------------------------------------------
 # Estágio 1: compila o cliente (Vite) e empacota o servidor (esbuild) em dist/.

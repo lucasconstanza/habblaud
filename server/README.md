@@ -355,6 +355,20 @@ do Codex levam `provider: 'codex'` (ausente = Claude Code). Ids: `<conta>:<threa
   `/ack` (mesma trava das mensagens). `canMessage` = há entregador (binário achado, ou auxiliar visto há até 10 s).
   Retorno 0 = entrou na fila da sessão (`delivered`); o Codex consome a fila a cada ~10 s, quando a sessão fica ociosa.
 
+## Gemini CLI
+
+Gemini CLI (`sources/gemini/`) entra como terceira fonte quando `~/.gemini/tmp` existe (`HABBLAUD_GEMINI_DIR` define
+outra pasta; `HABBLAUD_GEMINI=0` desliga). A conta e o histórico local aparecem sem hook; cada `tmp/*/.project_root`
+define o cwd do projeto e `chats/session-*.jsonl` traz a conversa. Sessão aberta e status exigem eventos dos hooks
+de `mod/habblaud-gemini/hook.mjs`, instaláveis com `npm run gemini:install`. A rota `/api/gemini/events` só aceita
+loopback, e o hook manda apenas metadados. Sem evento por 2 min, a presença expira; `SessionEnd` fecha na hora quando
+entregue. Mensagens e permissões seguem no CLI. `shared/world/projection.ts` exclui Gemini do World até o protocolo
+privado aceitar esse provedor. `docker:up` monta somente `~/.gemini/tmp`, em modo somente leitura; o histórico aceita
+caminhos Windows mesmo dentro do container Linux e associa `transcript_path` do hook apenas a arquivos validados na
+montagem. A porta do host precisa ter `HABBLAUD_BIND` local para receber os hooks.
+Sessões A2A com o mesmo id e cwd só são separadas quando o hook traz `transcript_path`; um `SessionEnd` ambíguo não
+fecha as duas e a presença expira pelo TTL se não vier outro evento inequívoco.
+
 ## Habblaud World
 
 Ligado por padrão, apontando para `server.habblaud.com` (`DEFAULT_WORLD_URL` em `config.ts`); nada sai do computador

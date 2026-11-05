@@ -19,13 +19,14 @@
 // Sessão: cookie HttpOnly + SameSite=Strict (+ Secure com HTTPS) assinado com HMAC; chave = segredo aleatório em
 // <dataDir>/remote-secret misturado com usuário e hash da senha: trocar a senha derruba todas as sessões.
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, unwatchFile, watchFile, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, unwatchFile, watchFile, writeFileSync } from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import https from 'node:https';
 import net from 'node:net';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { parsePasswordHash, verifyPassword, type PasswordHash } from '../remote/password';
+import { createPrivateTempFile, protectPrivateFile } from '../windows-acl';
 import { hostAllowed } from './guard';
 import { getLocale, tr } from '../../shared/i18n';
 
@@ -106,17 +107,22 @@ export function parseAllow(raw: string | undefined): Set<RemoteFeature> {
 
 /** Segredo de assinatura: lido de `file` ou criado (32 bytes, permissão 600). Sem disco gravável, vale só nesta execução. */
 export function loadSecret(file: string): Buffer {
+  let tmp: string | undefined;
   try {
     if (existsSync(file)) {
+      protectPrivateFile(file);
+      chmodSync(file, 0o600);
       const hex = readFileSync(file, 'utf8').trim();
       if (/^[0-9a-f]{64}$/.test(hex)) return Buffer.from(hex, 'hex');
     }
     const secret = randomBytes(32);
     mkdirSync(dirname(file), { recursive: true });
-    writeFileSync(file, secret.toString('hex'), { mode: 0o600 });
-    chmodSync(file, 0o600);
+    tmp = createPrivateTempFile(file);
+    writeFileSync(tmp, secret.toString('hex'));
+    renameSync(tmp, file);
     return secret;
   } catch {
+    if (tmp) try { rmSync(tmp, { force: true }); } catch { /* segue com segredo só em memória */ }
     return randomBytes(32);
   }
 }
@@ -182,6 +188,7 @@ export class RemoteSessions {
   private loadRevoked(): void {
     if (!this.revokedFile) return;
     try {
+      if (existsSync(this.revokedFile)) protectPrivateFile(this.revokedFile);
       const data: unknown = JSON.parse(readFileSync(this.revokedFile, 'utf8'));
       const now = this.now();
       for (const [sig, exp] of Object.entries(data as Record<string, unknown>)) {
@@ -194,12 +201,14 @@ export class RemoteSessions {
 
   private saveRevoked(): void {
     if (!this.revokedFile) return;
+    let tmp: string | undefined;
     try {
       mkdirSync(dirname(this.revokedFile), { recursive: true });
-      const tmp = `${this.revokedFile}.tmp`;
-      writeFileSync(tmp, JSON.stringify(Object.fromEntries(this.revoked)), { mode: 0o600 });
+      tmp = createPrivateTempFile(this.revokedFile);
+      writeFileSync(tmp, JSON.stringify(Object.fromEntries(this.revoked)));
       renameSync(tmp, this.revokedFile);
     } catch {
+      if (tmp) try { rmSync(tmp, { force: true }); } catch { /* sem temporário removível */ }
       // segue valendo em memória até o próximo reinício
     }
   }

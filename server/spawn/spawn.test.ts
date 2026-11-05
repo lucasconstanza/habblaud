@@ -1,4 +1,5 @@
 import { chmodSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -8,6 +9,7 @@ import {
   folderProblem,
   HOST_PRESENCE_MS,
   launch,
+  openerCommand,
   parseSpawn,
   QUEUED_TIMEOUT_MS,
   SENT_TIMEOUT_MS,
@@ -35,6 +37,23 @@ describe('novo agente: pedido e link', () => {
     expect([q.get('folder'), q.get('q'), q.get('source')]).toEqual(['/Users/a/meu proj', 'rode os testes & conte', 'habblaud']);
     expect(url).not.toContain('+');
     expect(new URL(spawnUrl({ folder: '/a', prompt: '  ' })).searchParams.has('q')).toBe(false);
+  });
+
+  it('no Windows preserva a URL inteira ao atravessar o cmd', () => {
+    const url = spawnUrl({ folder: 'C:\\Users\\Lucas\\Meu projeto', prompt: 'faça A & B' });
+    const command = openerCommand('win32', url);
+    expect(command.bin).toBe('cmd.exe');
+    expect(command.args.join(' ')).not.toContain(url);
+    expect(command.env?.HABBLAUD_OPEN_URL).toBe(url);
+    if (process.platform !== 'win32') return;
+    // O mesmo modo de invocar o cmd, com echo no lugar de start, não separa em `&` nem expande os `%` da URL.
+    const echo = spawnSync(command.bin, ['/d', '/s', '/c', 'echo "%HABBLAUD_OPEN_URL%"'], {
+      env: command.env,
+      windowsVerbatimArguments: command.windowsVerbatimArguments,
+      encoding: 'utf8',
+    });
+    expect(echo.status).toBe(0);
+    expect(echo.stdout.trim()).toBe(`"${url}"`);
   });
 
   it('folderProblem: pasta que não existe ou arquivo', () => {
@@ -162,7 +181,7 @@ describe('novo agente em segundo plano (claude --bg)', () => {
     expect(cliArgs({ folder: '/p', prompt: '  ' })).toEqual(['--bg', '-n', 'Habblaud']);
   });
 
-  it('createCliRunner roda o binário na pasta, sem shell, e lê o id; erro vira a 1ª linha', async () => {
+  it.runIf(process.platform !== 'win32')('createCliRunner roda o binário na pasta, sem shell, e lê o id; erro vira a 1ª linha', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'hb-spawn-'));
     const bin = join(dir, 'claude');
     writeFileSync(

@@ -108,6 +108,7 @@ type Item = Bubble | Label;
 const CODEX_CHIP_BG = '#161b26';
 /** Selo "CODEX" das etiquetas: discreto (vidro claro), sem a cor de ninguém. */
 const CODEX_BADGE = 'CODEX';
+const GEMINI_BADGE = 'GEMINI';
 
 /** Octógono "em degrau" (um quadrado de cantos cortados, como um pixel arredondado). */
 function steppedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, s: number): void {
@@ -876,7 +877,8 @@ export class Overlay {
     const chipW = acc ? 13 : 0;
     const visitor = ch === this.sim.visitor;
     const badgeW = visitor ? this.measure(BADGE_FONT, visitorBadge()) + 7 : ch.info.kind === 'sub' && !l.compact ? this.measure(BADGE_FONT, 'SUB') + 7 : 0;
-    const codexW = ch.info.provider === 'codex' && !l.compact ? this.measure(BADGE_FONT, CODEX_BADGE) + 7 : 0;
+    const providerBadge = ch.info.provider === 'codex' ? CODEX_BADGE : ch.info.provider === 'gemini' ? GEMINI_BADGE : '';
+    const codexW = providerBadge && !l.compact ? this.measure(BADGE_FONT, providerBadge) + 7 : 0;
     return { nameW, chipW, badgeW, codexW };
   }
 
@@ -970,7 +972,7 @@ export class Overlay {
       ctx.fill();
       ctx.font = BADGE_FONT;
       ctx.fillStyle = '#e8ecf5';
-      ctx.fillText(CODEX_BADGE, cx + 3.5, y + h / 2 + 0.5);
+      ctx.fillText(ch.info.provider === 'gemini' ? GEMINI_BADGE : CODEX_BADGE, cx + 3.5, y + h / 2 + 0.5);
     }
   }
 }

@@ -5,7 +5,7 @@
 <h1 align="center">Habblaud</h1>
 
 <p align="center">
-  <b>O escritório virtual dos seus agentes do Claude Code (e do Codex).</b><br />
+  <b>O escritório virtual dos seus agentes do Claude Code, Codex e Gemini CLI.</b><br />
   Cada projeto vira uma sala, cada agente vira um personagem em pixel art que mostra, em tempo real, o que está fazendo.
 </p>
 
@@ -34,8 +34,9 @@ E quando dois ou mais agentes estão à toa, o escritório ganha **vida social**
 eles veem futebol juntos no lounge, jogam videogame e ping-pong, fofocam na copa, se arrumam no espelho e apostam
 moedinhas no jokenpô. Veja em [Vida social](#vida-social).
 
-Tudo roda na sua máquina, lendo os arquivos que o próprio Claude Code já grava (e só as linhas `alias` do seu shell,
-para dar a letra de cada conta). Nada sai do computador: o Habblaud não lê credenciais nem faz chamadas externas.
+O escritório local lê os arquivos das ferramentas instaladas nesta máquina. O Habblaud não lê as credenciais dessas
+contas. Recursos externos opcionais, como o Habblaud World e a verificação de atualizações, fazem conexões de rede
+quando ligados; veja as configurações antes de ativá-los.
 
 ## Sumário
 
@@ -125,8 +126,8 @@ ela, e o endereço antigo apaga e é desmontado. Assim o prédio não fica com b
 
 ### Requisitos
 
-- **macOS** (testado) ou Linux.
-- **[Claude Code](https://code.claude.com)** instalado, com uma ou mais contas (2.1.287 ou mais novo para o mod).
+- **Windows 11** (testado), macOS ou Linux.
+- Pelo menos uma ferramenta instalada: **[Claude Code](https://code.claude.com)**, **Codex** ou **Gemini CLI**. O mod de uso ao vivo do Claude Code requer a versão 2.1.287 ou posterior.
 - **Node.js 22.12+** e **npm** (desenvolvido com o Node 24; o Docker já usa o Node 24).
 - **Docker Desktop** (ou Docker Engine com Compose v2), se for rodar em container.
 
@@ -149,7 +150,7 @@ npm install
 npm run docker:up
 ```
 
-O script detecta as suas contas do Claude Code, monta só as pastas necessárias (em modo somente leitura), constrói
+O script detecta as contas locais do Claude Code, Codex e Gemini CLI, monta só as pastas necessárias (em modo somente leitura), constrói
 a imagem e sobe o container — que reinicia sozinho junto com o Docker. Abra **http://localhost:4747**.
 
 **Opção B — Node, sem Docker**
@@ -160,6 +161,8 @@ npm start
 ```
 
 Abra **http://localhost:4747**. Para desenvolver, use `npm run dev` (servidor + Vite com recarga automática).
+
+No Windows 11, veja [os atalhos sem janela de console](local/README.md) para iniciar o escritório e a bandeja ao entrar no sistema.
 
 Agora abra o Claude Code em qualquer projeto e veja o seu agente chegar pelo elevador. 🎉
 
@@ -224,7 +227,35 @@ npm run codex:status       # confere
 
 Depois, **abra o Codex e aprove os hooks do Habblaud em `/hooks`**: o Codex só roda um hook novo depois que você o
 aprova (o Habblaud nunca grava essa aprovação). Com o Habblaud no Docker, para mandar mensagens às sessões do Codex
-deixe também `npm run codex:bridge` rodando no Mac (veja [Codex](#codex)).
+deixe também `npm run codex:bridge` rodando no computador host (veja [Codex](#codex)).
+
+### Gemini CLI no escritório (opcional)
+
+O Habblaud detecta `~/.gemini/tmp` e mostra a conta Gemini CLI e o histórico recente de `chats/*.jsonl`.
+O arquivo `.project_root` associa cada conversa ao projeto. Para mostrar uma **sessão aberta** e criar a sala do projeto,
+o Gemini CLI precisa enviar hooks locais; um chat recente sozinho não prova que a CLI continua aberta. Confira a
+configuração antes de instalar:
+
+```powershell
+npm run gemini:status
+npm run gemini:install -- --dry-run
+npm run gemini:install
+```
+
+O instalador acrescenta hooks observacionais em `~/.gemini/settings.json`, preserva os demais e cria backup antes de
+alterar o arquivo. Depois, abra uma nova sessão do Gemini CLI. O hook envia apenas id da sessão, pasta do projeto,
+caminho local do transcript, evento e horário para `127.0.0.1`; prompts e respostas não vão no evento. `npm run gemini:uninstall` remove os hooks do
+Habblaud. O terminal do escritório pode ler o chat local; mensagens e aprovações do Gemini continuam no próprio CLI.
+O cartão dessa conta não mostra percentuais de 5 horas ou da semana: essas janelas são de outras ferramentas e o
+Habblaud não recebe uma cota estruturada do Gemini CLI. Para consultar o uso de tokens da sessão e a cota dos modelos,
+rode `/stats model` no Gemini CLI. Essa consulta aparece na própria CLI; não é capturada pelos hooks do Habblaud.
+Salas de projetos sem sessão ativa não são criadas. O Habblaud World ainda não aceita Gemini no protocolo, então
+essas salas e agentes ficam só no escritório local. Com `npm run docker:up`, o Habblaud monta **somente**
+`~/.gemini/tmp` em modo somente leitura, sem configurações nem credenciais. Os hooks chegam pela porta publicada no
+`127.0.0.1` do host; mantenha `HABBLAUD_BIND` local para aceitá-los. No Docker, os caminhos Windows gravados em
+`.project_root` continuam identificando os mesmos projetos e salas.
+Se duas sessões A2A na mesma pasta usarem o mesmo id, o `transcript_path` distingue seus personagens; sem esse
+caminho, o hook não contém informação suficiente para separá-las até que a CLI o forneça.
 
 ### Abrir no celular (opcional)
 
@@ -657,7 +688,7 @@ Quer ver o escritório cheio sem ter sessões abertas?
 
 > As contas do **Codex** entram sozinhas (cada pasta `~/.codex*` ou `CODEX_HOME` é uma conta; a letra vem de um
 > `alias x='CODEX_HOME=… codex'`, se houver) e o uso delas vem dos arquivos do Codex; veja [Codex](#codex). O resto
-> desta seção é sobre o Claude Code.
+> desta seção é sobre o Claude Code. Para o Gemini CLI, veja [Gemini CLI no escritório](#gemini-cli-no-escritório-opcional).
 
 Se você usa mais de uma conta do Claude Code (por exemplo, um atalho `c` com `~/.claude` e um `d` com
 `CLAUDE_CONFIG_DIR=~/.claude-conta2`), o Habblaud mostra todas juntas: cada agente leva o chip da sua conta e o topo
@@ -727,6 +758,8 @@ Tudo funciona sem configurar nada. Se precisar ajustar, use variáveis de ambien
 | `HABBLAUD_CODEX` | ligado | `0` desliga o Codex no escritório. |
 | `HABBLAUD_CODEX_DIRS` | detecção automática | Pastas do Codex, separadas por vírgula (no lugar de `~/.codex*` e `CODEX_HOME`). |
 | `HABBLAUD_CODEX_BIN` | `codex` do PATH (no Windows, `codex.exe`) | O binário do Codex que entrega as mensagens (`codex queue`), no modo Node ou no `npm run codex:bridge`. |
+| `HABBLAUD_GEMINI` | ligado | `0` desliga a fonte Gemini CLI. |
+| `HABBLAUD_GEMINI_DIR` | `~/.gemini` | Pasta da conta Gemini CLI para histórico e presença por hooks. |
 | `HABBLAUD_UPDATE_CHECK` | ligado | `0` desliga a verificação de versão nova (uma consulta às releases do repositório no GitHub a cada 6 h). |
 | `HABBLAUD_LANG` | idioma do sistema (menos inglês), senão `pt-BR` | Idioma dos textos montados pelo servidor (atividades, avisos, logs): `pt-BR`, `en`, `es` ou `fr`. A interface segue o navegador ou a escolha em Configurações › Idioma. Ver [Idiomas](#idiomas). |
 | `HABBLAUD_ACCOUNTS` | — | JSON para personalizar nome, letra ou cor, casado pelo nome da pasta da conta. Ex.: `[{"id":".claude-conta2","name":"Trabalho","short":"T","color":"#5cc97b"}]`. |

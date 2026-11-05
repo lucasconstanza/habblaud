@@ -1,0 +1,6 @@
+# Pendências
+
+- [ ] **HAB-001 — Confirmar os hooks do Codex em `/hooks`.** A instalação local tem 9/9 eventos; o Codex exige a aprovação dos hooks na própria interface antes de executá-los.
+- [ ] **HAB-002 — Validar uma sessão Gemini CLI autenticada.** Os 7/7 hooks estão instalados e o comando foi corrigido para PowerShell, mas o teste real termina antes da resposta: `cloudcode-pa.googleapis.com` resolve para `127.0.0.1` e `::1` por entradas em `C:\Windows\System32\drivers\etc\hosts` (linhas 36–43 nesta máquina), e a conexão retorna `ECONNREFUSED`. A causa e o impacto desse bloqueio global precisam ser avaliados antes de alterá-lo. Depois de restaurar a conectividade da CLI, repetir o teste com uma sessão real, conferir a autenticação Google e a presença ao vivo no escritório.
+- [ ] **HAB-003 — Suportar Gemini CLI no Habblaud World após extensão do protocolo.** O protocolo atual aceita Claude e Codex. Até haver suporte oficial, agentes Gemini ficam apenas no escritório local, sem serem apresentados como outra ferramenta.
+- [ ] **HAB-004 — Conferir a CI remota após publicar a branch.** A matriz Ubuntu/Windows está configurada e a suíte passou localmente no Windows; a execução do GitHub Actions depende de push ou pull request.

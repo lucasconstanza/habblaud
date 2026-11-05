@@ -64,6 +64,21 @@ describe('entregas: texto', () => {
     expect(linkedFiles('veja [a](telas/a.png) e [b](https://x.com/b.png) e /Users/ana/.ssh/k.png', '/Users/ana/proj')).toEqual(['/Users/ana/proj/telas/a.png']);
     expect(linkedFiles('[c](relativo.png)')).toEqual([]);
   });
+
+  it('links Windows: caminhos absolutos e relativos, sem arquivos protegidos', () => {
+    const project = 'C:\\Users\\ana\\projeto';
+    expect(linkedFiles('Veja [o PDF](C:\\Users\\ana\\projeto\\relatorio.pdf) e C:\\Users\\ana\\projeto\\foto.png', project)).toEqual([
+      'C:\\Users\\ana\\projeto\\relatorio.pdf',
+      'C:\\Users\\ana\\projeto\\foto.png',
+    ]);
+    expect(linkedFiles('[foto](telas\\antes.png) [segredo](C:\\Users\\ana\\.ssh\\id_rsa.png) [web](https://exemplo.com/foto.png)', project)).toEqual([
+      'C:\\Users\\ana\\projeto\\telas\\antes.png',
+    ]);
+    expect(linkedFiles('[PDF](file:///C:/Users/ana/projeto/relatorio%20final.pdf)', project)).toEqual([
+      'C:\\Users\\ana\\projeto\\relatorio final.pdf',
+    ]);
+    expect(linkedFiles('[segredo](file:///C:/Users/ana/.ssh/id_rsa.pdf) [UNC](file://servidor/share/foto.png)', project)).toEqual([]);
+  });
 });
 
 describe('entregas: pedidos do transcript', () => {

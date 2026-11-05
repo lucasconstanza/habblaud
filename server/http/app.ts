@@ -4,6 +4,8 @@ import { NAME_MAX, parseAppearanceParts, parseCharacterName, parseSeed } from '.
 import type { AccessInfo, AgentInfo, ModSummary, OfficeSnapshot, SourceInfo, UpdateStatus } from '../../shared/types';
 import type { AccountsService } from '../accounts/service';
 import { handleCodexEvent } from '../codex/http';
+import { handleGeminiEvent } from '../gemini/http';
+import type { GeminiSource } from '../sources/gemini/source';
 import type { DayStatsService } from '../history/daystats';
 import type { Office } from '../model/office';
 import type { CodexLive } from '../sources/codex/live';
@@ -30,6 +32,8 @@ export interface ApiDeps {
   sources: () => SourceInfo[];
   version: string;
   inDocker: boolean;
+  /** Porta publicada só em loopback no host, independente de HABBLAUD_TERMINAL. */
+  privateBind?: boolean;
   /** Terminal ligado (ServerConfig.terminal: só com bind local). */
   terminal?: boolean;
   /** Streams do terminal; sem eles o recurso fica desligado mesmo com `terminal`. */
@@ -63,6 +67,8 @@ export interface ApiDeps {
    * não dependem da trava do terminal).
    */
   codexLive?: CodexLive;
+  /** Eventos locais dos hooks do Gemini CLI, sem conteúdo da conversa. */
+  geminiLive?: GeminiSource;
   /** Novo agente pelo escritório (/api/spawn e, para o auxiliar do host, /api/host/spawn/*; server/spawn/spawn.ts). */
   spawn?: SpawnService;
   /** Pastas sugeridas no "Novo agente" (GET /api/spawn/folders; spawn/folders.ts): projetos recentes. */
@@ -125,6 +131,7 @@ function isLocalOnlyPath(path: string): boolean {
     path === '/api/mod/inbox' ||
     path === '/api/mod/inbox/ack' ||
     path.startsWith('/api/codex/') ||
+    path === '/api/gemini/events' ||
     path.startsWith('/api/host/')
   );
 }
@@ -271,6 +278,10 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
    */
   const trusted = (req: IncomingMessage, feature?: RemoteFeature): boolean =>
     isRemote(req) ? !!feature && !!deps.remote?.allows(feature) : isLoopbackHost(req.headers.host);
+  /** O Host é forjável na LAN: hooks e World exigem porta privada ou par de loopback. */
+  const localProcess = (req: IncomingMessage): boolean =>
+    !isRemote(req) && isLoopbackHost(req.headers.host) &&
+    (deps.inDocker ? !!deps.privateBind : isLoopbackAddress(req.socket.remoteAddress));
   const denied = (req: IncomingMessage, localMessage: string): string =>
     isRemote(req) ? tr('não liberado no acesso remoto (veja HABBLAUD_REMOTE_ALLOW)') : localMessage;
 
@@ -344,7 +355,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       if (!deps.world) {
         req.resume();
         sendJson(res, 404, { error: tr('rota desconhecida') });
-      } else if (isRemote(req) || !isLoopbackHost(req.headers.host)) {
+      } else if (!localProcess(req)) {
         req.resume();
         sendJson(res, 403, { error: { code: 'local_only', message: tr('o Habblaud World só é usado pelo próprio computador (http://localhost)') } });
       } else deps.world(req, res, url);
@@ -484,9 +495,16 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       // sempre conecta pelo loopback (o Host sozinho um cliente da rede consegue imitar); no Docker ele chega pela porta
       // publicada, com o endereço do gateway.
       if (method !== 'POST') methodNotAllowed(res, 'POST');
-      else if (!trusted(req) || (!deps.inDocker && !isLoopbackAddress(req.socket.remoteAddress))) {
+      else if (!localProcess(req)) {
         sendJson(res, 403, { error: denied(req, tr('eventos do Codex só são aceitos pelo próprio computador (http://localhost ou http://127.0.0.1)')) });
       } else handleCodexEvent(req, res, { live: deps.codexLive, entries: () => accounts.entriesOf('codex') }).catch((err) => fail(res, err));
+      return true;
+    }
+    if (path === '/api/gemini/events') {
+      if (method !== 'POST') methodNotAllowed(res, 'POST');
+      else if (!localProcess(req)) {
+        sendJson(res, 403, { error: denied(req, tr('eventos do Gemini CLI só são aceitos pelo próprio computador')) });
+      } else handleGeminiEvent(req, res, deps.geminiLive).catch((err) => fail(res, err));
       return true;
     }
     if (path === '/api/spawn' || path.startsWith('/api/spawn/')) {
@@ -577,7 +595,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       const files = deps.files;
       if (method !== 'POST') methodNotAllowed(res, 'POST');
       else if (!files) sendJson(res, 403, { error: tr('arquivos desligados') });
-      else if (!trusted(req) || (!deps.inDocker && !isLoopbackAddress(req.socket.remoteAddress))) {
+      else if (!localProcess(req)) {
         sendJson(res, 403, { error: denied(req, tr('só o auxiliar do próprio computador')) });
       } else if (path === '/api/host/files/poll') {
         req.resume();
@@ -597,7 +615,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       const dictation = deps.dictation;
       if (method !== 'POST') methodNotAllowed(res, 'POST');
       else if (!dictation) sendJson(res, 403, { error: tr('ditado desligado') });
-      else if (!trusted(req) || (!deps.inDocker && !isLoopbackAddress(req.socket.remoteAddress))) {
+      else if (!localProcess(req)) {
         sendJson(res, 403, { error: denied(req, tr('só o auxiliar do próprio computador')) });
       } else if (path === '/api/host/dictation/poll') {
         req.resume();
@@ -617,7 +635,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       const spawn = deps.spawn;
       if (method !== 'POST') methodNotAllowed(res, 'POST');
       else if (!spawn) sendJson(res, 403, { error: tr('novo agente pelo escritório desligado') });
-      else if (!trusted(req) || (!deps.inDocker && !isLoopbackAddress(req.socket.remoteAddress))) {
+      else if (!localProcess(req)) {
         sendJson(res, 403, { error: denied(req, tr('só o auxiliar do próprio computador')) });
       } else if (path === '/api/host/spawn/poll') {
         req.resume();
@@ -686,7 +704,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
     if (path === '/api/demo') {
       // Liga o modo demonstração para todo mundo: só pelo computador (o celular com login só vê o que foi liberado).
       if (method !== 'POST') methodNotAllowed(res, 'POST');
-      else if (isRemote(req)) sendJson(res, 403, { error: tr('não liberado no acesso remoto (veja HABBLAUD_REMOTE_ALLOW)') });
+      else if (!localProcess(req)) sendJson(res, 403, { error: denied(req, tr('só o próprio computador pode alterar o modo demonstração')) });
       else handleDemo(req, res).catch((err) => fail(res, err));
       return true;
     }
