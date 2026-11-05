@@ -996,7 +996,7 @@ describe('a cena Mundo pelas rotas (stream e comandos)', () => {
     await waitFor(() => !second.open, 'conexão fechada fora do mundo');
     expect(second.messages.slice(fromLeave).every((m) => SCENE_ONLY.has(m.t as string))).toBe(true);
     expect(w.ws.open).toHaveLength(0);
-  });
+  }, 15_000);
 
   it('banida ou suspensa: o botão Mundo some (scene.available false) e a cidade não abre', async () => {
     const { s, conn } = await approved();

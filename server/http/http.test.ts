@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ModSummary, OfficeSnapshot, PermissionRequestInfo, UpdateStatus } from '../../shared/types';
 import { AccountsService } from '../accounts/service';
+import type { ClaudeUsageRefresher } from '../accounts/refresh';
 import { setQuiet } from '../log';
 import { NameStore } from '../model/names';
 import { Office, type OfficeDeps } from '../model/office';
@@ -111,6 +112,36 @@ describe('API HTTP', () => {
     expect(snap.agents.map((a) => a.id)).toEqual(['.claude:1']);
     expect(snap.accounts[0]).toMatchObject({ id: '.claude', sessions: 1 });
     expect(snap.meta.version).toBe('9.9.9');
+  });
+
+  it('POST /api/usage/refresh só aceita JSON da própria origem local e devolve snapshot novo', async () => {
+    await env.close();
+    env.cleanup();
+    const refresh = vi.fn(async (id: string) => id === '.claude' ? 'ok' as const : 'unknown-account' as const);
+    env = await start({ usageRefresh: { refresh } as unknown as ClaudeUsageRefresher });
+    const path = '/api/usage/refresh';
+    const body = JSON.stringify({ accountId: '.claude' });
+    expect((await raw(env.base, path, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: 'https://evil.example' }, body })).status).toBe(403);
+    expect((await raw(env.base, path, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:9999' }, body })).status).toBe(403);
+    expect((await raw(env.base, path, { method: 'POST', headers: { 'Content-Type': 'application/json', Host: 'habblaud.lan' }, body })).status).toBe(403);
+    expect((await raw(env.base, path, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body })).status).toBe(415);
+    expect((await raw(env.base, path, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ accountId: '../fora' }) })).status).toBe(404);
+    expect(refresh).toHaveBeenCalledOnce();
+    const ok = await raw(env.base, path, { method: 'POST', headers: JSON_HEADERS, body });
+    expect(ok.status).toBe(200);
+    expect((JSON.parse(ok.body) as { snapshot: OfficeSnapshot }).snapshot.accounts[0].id).toBe('.claude');
+    expect(refresh).toHaveBeenLastCalledWith('.claude');
+  });
+
+  it('POST /api/usage/refresh informa quando não há CLI local e quando ela falha', async () => {
+    const unavailable = await raw(env.base, '/api/usage/refresh', { method: 'POST', headers: JSON_HEADERS, body: '{"accountId":".claude"}' });
+    expect(unavailable.status).toBe(503);
+    await env.close();
+    env.cleanup();
+    env = await start({ usageRefresh: { refresh: async () => 'cli-failed' } as unknown as ClaudeUsageRefresher });
+    const failed = await raw(env.base, '/api/usage/refresh', { method: 'POST', headers: JSON_HEADERS, body: '{"accountId":".claude"}' });
+    expect(failed.status).toBe(502);
+    expect(failed.body).not.toContain('token');
   });
 
   it('GET /api/stream envia retry, snapshot e feed; depois as mudanças', async () => {

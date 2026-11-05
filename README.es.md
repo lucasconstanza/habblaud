@@ -5,7 +5,7 @@
 <h1 align="center">Habblaud</h1>
 
 <p align="center">
-  <b>La oficina virtual de tus agentes de Claude Code, Codex y Gemini CLI.</b><br />
+  <b>La oficina virtual de tus agentes de Claude Code, Codex y Antigravity CLI.</b><br />
   Cada proyecto se convierte en una sala, y cada agente, en un personaje en pixel art que muestra en tiempo real lo que está haciendo.
 </p>
 
@@ -230,7 +230,37 @@ Después, **abre Codex y aprueba los hooks de Habblaud en `/hooks`**: Codex solo
 lo apruebas (Habblaud nunca guarda esa aprobación). Con Habblaud en Docker, para enviar mensajes a las sesiones de
 Codex deja también `npm run codex:bridge` en ejecución en el Mac (consulta [Codex](#codex)).
 
-### 5. Gemini CLI en la oficina (opcional)
+### 5. Antigravity CLI en la oficina (cuenta de Google)
+
+Habblaud reconoce Antigravity CLI (`agy`) como herramienta distinta del antiguo Gemini CLI. La cuenta de Google
+aparece arriba; las sesiones observadas en el mismo proyecto comparten sala con Claude Code y Codex. En el equipo
+donde se ejecuta `agy`, habilita la captura local:
+
+```powershell
+npm run antigravity:status
+npm run antigravity:install -- --dry-run
+npm run antigravity:install
+```
+
+El instalador conserva los demás hooks y la línea de estado y crea copias antes de modificarlos. Habblaud recibe
+solo metadatos de la sesión y grupos de cuota de la CLI, sin leer credenciales ni enviar prompts o respuestas.
+Muestra el **porcentaje restante** únicamente cuando la CLI informa una fracción válida. Para consultar todos los
+límites y créditos actuales, ejecuta [`/usage`](https://antigravity.google/docs/cli/commands/usage) en Antigravity CLI.
+Los mensajes y permisos se resuelven en la propia CLI. `npm run antigravity:uninstall` quita esta captura.
+
+La última lectura de cuota, su hora, correo y plan se guardan en el archivo privado `antigravity-quota.json` de la
+carpeta de datos de Habblaud (`~/.habblaud` con Node; `/data` en Docker). Sobrevive al reinicio y aparece como
+**lectura antigua** después de 30 minutos; allí no se guardan prompts ni transcripciones. La cuota se actualiza
+cuando la TUI de `agy` ejecuta la línea de estado. `agy --print /usage` muestra un informe en la CLI, pero no activa
+esta captura de Habblaud.
+
+### 6. Gemini CLI antiguo (clave API o licencia empresarial)
+
+[Google anunció](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/)
+que Gemini CLI dejó de atender cuentas personales gratuitas, Pro y Ultra el 18 de junio de 2026. Las licencias
+Gemini Code Assist Standard/Enterprise y las claves API de pago siguen disponibles. Habblaud conserva la
+integración siguiente para esos usuarios. Gemini CLI antiguo se detecta automáticamente solo cuando Antigravity CLI
+no está presente; usa `HABBLAUD_GEMINI=1` para mostrar ambos.
 
 Habblaud detecta `~/.gemini/tmp` y muestra la cuenta y el historial de Gemini CLI. En Docker, `npm run docker:up`
 monta únicamente esa carpeta de lectura; las credenciales permanecen en el equipo. Una conversación reciente no
@@ -749,6 +779,8 @@ tap de statusline (`npm run usage:install`) hace lo mismo mediante el comando de
 | **Mod de Habblaud** (recomendado) | En vivo, como se describe arriba. Reemplaza al tap: `mod:install` quita el tap de la cuenta. |
 | Tap de statusline (Claude Code anterior a 2.1.287) | En vivo, mediante el comando de statusline, en el mismo archivo. |
 | Caché de `/usage` (siempre activa) | Claude Code guarda el último resultado del comando `/usage`. En modo Node, Habblaud lo vuelve a leer cada 60 s; en Docker, vale el valor leído en el último `npm run docker:up`. Solo cambia cuando alguien ejecuta `/usage`. |
+
+En la tarjeta de la cuenta Claude, **Actualizar uso** ejecuta bajo demanda `claude --print --no-session-persistence --output-format json '/usage'` para la cuenta seleccionada y vuelve a leer la caché. Requiere Habblaud en Node local y Claude Code instalado y autenticado; en Docker, la acción devuelve 503 porque la CLI del equipo no se ejecuta en el contenedor. Claude puede omitir la ventana de 5 h; en ese caso aparece como desconocida aunque el uso semanal esté actualizado.
 
 Las fuentes son archivos locales: ninguna lee contraseñas ni tokens, ni hace llamadas de red. Siempre vale la fuente
 con los números más recientes. Los números con más de 30 minutos aparecen como **desactualizados**; una ventana que ya

@@ -68,6 +68,13 @@ const CODEX_HELP: string[] = [
   tr('Meu dia: o Codex conta tokens, mas não grava custo.'),
 ];
 
+const ANTIGRAVITY_HELP: string[] = [
+  tr('O Antigravity CLI usa a conta Google, mas é uma ferramenta diferente do Gemini CLI legado. Cada projeto com sessão observada aparece na sua sala.'),
+  tr('O uso por modelo vem da linha de status do Antigravity CLI. O cartão mostra a porcentagem restante somente quando a CLI fornece uma fração válida para aquele grupo de cota; números antigos não representam a cota atual.'),
+  tr('Para consultar todos os limites e créditos atualizados, rode `/usage` no Antigravity CLI.'),
+  tr('Mensagens e permissões são respondidas no próprio Antigravity CLI.'),
+];
+
 /** O fim da espera (o servidor marca com uma atividade ✅ ou ❌). */
 const SHELL_END_HELP: [string, string][] = [
   ['🎉', tr('Terminou bem: levanta, comemora com confete e uma estrela.')],
@@ -75,7 +82,7 @@ const SHELL_END_HELP: [string, string][] = [
 ];
 
 const INTRO =
-  tr('Cada projeto aberto no Claude Code ou no Codex vira uma sala (os dois no mesmo projeto dividem a sala), e cada sessão aberta é um personagem com nome próprio. ') +
+  tr('Cada projeto com sessão aberta do Claude Code, Codex, Antigravity CLI ou Gemini CLI vira uma sala compartilhada, e cada sessão aberta é um personagem com nome próprio. ') +
   tr('Subagentes chegam como colegas novos, trabalham na mesma sala e vão embora quando terminam. ') +
   tr('Quando a última sessão de uma sala é fechada, quem sai apaga a luz e a sala é desmontada.');
 
@@ -144,7 +151,7 @@ export class HelpDialog {
             h('li', { text: tr('Clique em um personagem ou sala para ver os detalhes; duplo clique aproxima a câmera.') }),
             h('li', { text: tr('Passe o mouse sobre um personagem para ver o que ele está fazendo.') }),
             h('li', {
-              text: tr('Nos detalhes de um agente, “Abrir terminal” mostra a conversa da sessão como no Claude Code (ou no Codex), ao vivo (precisa do acesso local, bind 127.0.0.1).'),
+              text: tr('Nos detalhes de um agente, “Abrir terminal” mostra a conversa da sessão ao vivo quando a ferramenta a disponibiliza (precisa do acesso local, bind 127.0.0.1).'),
             }),
             h('li', {
               text: tr('Com o plugin habblaud-mensagens (npm run mod:install), dá para mandar mensagens ao agente principal pelos detalhes dele ou pela caixa no rodapé do terminal: o texto entra na sessão como se você o tivesse digitado. Enter manda, Shift+Enter quebra a linha.'),
@@ -160,6 +167,7 @@ export class HelpDialog {
         ),
         this.usageSection(),
         this.codexSection(),
+        this.antigravitySection(),
       ),
     );
     // Clique no fundo (fora do conteúdo) fecha.
@@ -249,7 +257,7 @@ export class HelpDialog {
         h('li', { text: tr('O chip colorido com a letra (C, D…) mostra de qual conta do Claude Code é cada agente: cada atalho de terminal usa uma pasta de configuração diferente.') }),
         h('li', {}, accountSample('C', '#f08a3c'), tr(' Conta do Claude Code · '), accountSample('X', '#a77bf3', true), tr(' Conta do Codex (chip vazado, com o selo CODEX onde há espaço).')),
         h('li', {
-          text: tr('No topo, cada conta mostra o uso da sessão de 5 horas e da semana. O ↻ indica quando cada limite reinicia (contagem regressiva se faltar menos de um dia). Verde abaixo de 50%, âmbar até 80% e vermelho a partir daí.'),
+          text: tr('No topo, as contas Claude Code e Codex mostram o uso das janelas que a ferramenta informa. O ↻ indica quando cada limite reinicia. A conta Antigravity CLI mostra apenas grupos de cota informados pela própria CLI.'),
         }),
         h('li', { text: tr('Números antigos ficam acinzentados com a idade ao lado (ex.: “há 3 h”); uma janela que já reiniciou desde a leitura mostra “—” e “renovada”.') }),
       ),
@@ -269,6 +277,17 @@ export class HelpDialog {
       h('ul', { class: 'ui-help__list' }, ...CODEX_HELP.map((text) => h('li', {}, ...richText(text)))),
     );
     this.sections.set('codex', el);
+    return el;
+  }
+
+  private antigravitySection(): HTMLElement {
+    const el = h(
+      'section',
+      { class: 'ui-help__usage', attrs: { 'aria-labelledby': 'ui-help-antigravity' } },
+      h('h3', { text: 'Antigravity CLI', tabIndex: -1, attrs: { id: 'ui-help-antigravity' } }),
+      h('ul', { class: 'ui-help__list' }, ...ANTIGRAVITY_HELP.map((text) => h('li', {}, ...richText(text)))),
+    );
+    this.sections.set('antigravity', el);
     return el;
   }
 

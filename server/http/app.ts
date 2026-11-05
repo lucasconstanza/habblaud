@@ -3,9 +3,12 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { NAME_MAX, parseAppearanceParts, parseCharacterName, parseSeed } from '../../shared/appearance';
 import type { AccessInfo, AgentInfo, ModSummary, OfficeSnapshot, SourceInfo, UpdateStatus } from '../../shared/types';
 import type { AccountsService } from '../accounts/service';
+import type { ClaudeUsageRefresher } from '../accounts/refresh';
 import { handleCodexEvent } from '../codex/http';
 import { handleGeminiEvent } from '../gemini/http';
 import type { GeminiSource } from '../sources/gemini/source';
+import { handleAntigravityEvent } from '../antigravity/http';
+import type { AntigravitySource } from '../sources/antigravity/source';
 import type { DayStatsService } from '../history/daystats';
 import type { Office } from '../model/office';
 import type { CodexLive } from '../sources/codex/live';
@@ -29,6 +32,8 @@ export interface ApiDeps {
   office: Office;
   hub: Hub;
   accounts: AccountsService;
+  /** Consulta /usage pela CLI Claude local, somente sob demanda e fora do Docker. */
+  usageRefresh?: ClaudeUsageRefresher;
   sources: () => SourceInfo[];
   version: string;
   inDocker: boolean;
@@ -69,6 +74,7 @@ export interface ApiDeps {
   codexLive?: CodexLive;
   /** Eventos locais dos hooks do Gemini CLI, sem conteúdo da conversa. */
   geminiLive?: GeminiSource;
+  antigravityLive?: AntigravitySource;
   /** Novo agente pelo escritório (/api/spawn e, para o auxiliar do host, /api/host/spawn/*; server/spawn/spawn.ts). */
   spawn?: SpawnService;
   /** Pastas sugeridas no "Novo agente" (GET /api/spawn/folders; spawn/folders.ts): projetos recentes. */
@@ -118,6 +124,18 @@ function isLoopbackAddress(addr: string | undefined): boolean {
   return a === '::1' || /^127\./.test(a);
 }
 
+/** Para iniciar a CLI, Origin presente deve ser exatamente a origem desta página, incluindo a porta. */
+function sameOrigin(req: IncomingMessage): boolean {
+  const origin = req.headers.origin;
+  if (origin === undefined) return true;
+  try {
+    const url = new URL(origin);
+    return (url.protocol === 'http:' || url.protocol === 'https:') && url.host.toLowerCase() === req.headers.host?.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
 /** Rotas das mensagens pelo escritório (server/messages/http.ts); /api/mod/summary fica de fora (sem trava). */
 /**
  * Rotas dos hooks, dos plugins e do auxiliar do host: registrar e esperar pedidos de permissão, buscar as mensagens de
@@ -132,7 +150,9 @@ function isLocalOnlyPath(path: string): boolean {
     path === '/api/mod/inbox/ack' ||
     path.startsWith('/api/codex/') ||
     path === '/api/gemini/events' ||
-    path.startsWith('/api/host/')
+    path.startsWith('/api/antigravity/') ||
+    path.startsWith('/api/host/') ||
+    path === '/api/usage/refresh'
   );
 }
 
@@ -371,6 +391,32 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       else sendJson(res, 200, hub.current());
       return true;
     }
+    if (path === '/api/usage/refresh') {
+      if (method !== 'POST') methodNotAllowed(res, 'POST');
+      else if (!localProcess(req) || !sameOrigin(req)) {
+        req.resume();
+        sendJson(res, 403, { error: tr('Atualização de uso disponível só neste computador por localhost.') });
+      } else if (!isJsonContentType(req.headers['content-type'])) {
+        req.resume();
+        sendJson(res, 415, { error: tr('Envie o corpo como JSON (Content-Type: application/json).') });
+      } else if (!deps.usageRefresh) {
+        req.resume();
+        sendJson(res, 503, { error: tr('Atualização de uso indisponível: execute o Habblaud localmente com o Claude Code instalado (fora do Docker).') });
+      } else {
+        readJson(req).then(async (body) => {
+          const id = (body as { accountId?: unknown } | null)?.accountId;
+          if (typeof id !== 'string' || !id || id.length > 200) throw new HttpError(400, tr('ID de conta inválido.'));
+          const result = await deps.usageRefresh!.refresh(id);
+          if (result === 'unknown-account') return sendJson(res, 404, { error: tr('Conta Claude não encontrada.') });
+          if (result === 'busy') return sendJson(res, 409, { error: tr('O uso desta conta já está sendo atualizado.') });
+          if (result === 'rate-limited') return sendJson(res, 429, { error: tr('Aguarde um minuto antes de atualizar esta conta novamente.') });
+          if (result === 'cli-failed') return sendJson(res, 502, { error: tr('O Claude Code não concluiu /usage. Confira a autenticação da conta na CLI.') });
+          if (result === 'no-new-usage') return sendJson(res, 502, { error: tr('O Claude Code respondeu, mas não gravou novos números para esta conta.') });
+          sendJson(res, 200, { ok: true, snapshot: hub.current() });
+        }).catch((err) => fail(res, err));
+      }
+      return true;
+    }
     if (path === '/api/health') {
       if (!isRead) methodNotAllowed(res, 'GET');
       else {
@@ -505,6 +551,12 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       else if (!localProcess(req)) {
         sendJson(res, 403, { error: denied(req, tr('eventos do Gemini CLI só são aceitos pelo próprio computador')) });
       } else handleGeminiEvent(req, res, deps.geminiLive).catch((err) => fail(res, err));
+      return true;
+    }
+    if (path === '/api/antigravity/events' || path === '/api/antigravity/statusline') {
+      if (method !== 'POST') methodNotAllowed(res, 'POST');
+      else if (!localProcess(req)) sendJson(res, 403, { error: denied(req, tr('eventos do Antigravity CLI só são aceitos pelo próprio computador')) });
+      else handleAntigravityEvent(req, res, deps.antigravityLive, path.endsWith('/events') ? 'hook' : 'statusline').catch((err) => fail(res, err));
       return true;
     }
     if (path === '/api/spawn' || path.startsWith('/api/spawn/')) {

@@ -15,8 +15,9 @@ export type AgentKind = 'main' | 'sub';
  * - claude: Claude Code;
  * - codex: OpenAI Codex (CLI `codex` e o app desktop, que gravam no mesmo CODEX_HOME).
  * - gemini: Gemini CLI (histórico local e presença confirmada pelos hooks da CLI).
+ * - antigravity: Antigravity CLI (`agy`), distinto do histórico legado do Gemini CLI.
  */
-export type Provider = 'claude' | 'codex' | 'gemini';
+export type Provider = 'claude' | 'codex' | 'gemini' | 'antigravity';
 
 /**
  * Estado de alto nível de um agente — é o que dirige o comportamento do personagem.
@@ -321,6 +322,11 @@ export interface AccountInfo {
   /** Sessões abertas agora nesta conta. */
   sessions: number;
   usage?: AccountUsage;
+  /** Cotas por bucket informadas pelo statusline do Antigravity; sem inferir janela de 5h/semanal. */
+  antigravityQuota?: {
+    fetchedAt: number;
+    buckets: Array<{ id: string; remainingFraction?: number; resetAt?: number; disabled?: boolean }>;
+  };
   /** Última captura local do mod/tap Claude, mesmo quando o cache do /usage é mais recente. */
   lastLiveUsage?: { via: 'mod' | 'tap'; fetchedAt: number };
   /**

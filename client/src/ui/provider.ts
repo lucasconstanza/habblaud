@@ -8,7 +8,7 @@ import { shortcutHint } from './model';
 import { tr } from '../../../shared/i18n';
 
 /** Nome de cada ferramenta como aparece nos textos. */
-export const PROVIDER_NAME: Record<Provider, string> = { claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini CLI' };
+export const PROVIDER_NAME: Record<Provider, string> = { claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini CLI', antigravity: 'Antigravity CLI' };
 
 /** Ferramenta de um agente, conta, sessão ou pedido (ausente = Claude Code). */
 export function providerOf(x: { provider?: Provider } | null | undefined): Provider {
@@ -31,10 +31,14 @@ export function looksLikeGeminiId(id: string): boolean {
   return /(?:^|[:/\\])\.?gemini(?:[-_.~]|$)/i.test(id);
 }
 
+export function looksLikeAntigravityId(id: string): boolean {
+  return /(?:^|[:/\\])\.?antigravity(?:[-_.~]|$)/i.test(id);
+}
+
 /** Ferramenta da conta: a do snapshot; sem ela, a dica de quem chamou ou o jeito do id. */
 export function accountProvider(account: Pick<AccountInfo, 'provider'> | undefined, fallbackId = '', hint?: Provider): Provider {
   if (account) return providerOf(account);
-  return hint ?? (looksLikeCodexId(fallbackId) ? 'codex' : looksLikeGeminiId(fallbackId) ? 'gemini' : 'claude');
+  return hint ?? (looksLikeCodexId(fallbackId) ? 'codex' : looksLikeAntigravityId(fallbackId) ? 'antigravity' : looksLikeGeminiId(fallbackId) ? 'gemini' : 'claude');
 }
 
 /**
@@ -46,10 +50,10 @@ export function fallbackShort(id: string, provider: Provider = accountProvider(u
   const rest = id
     .replace(/^.*:/, '')
     .replace(/~\d+$/, '')
-    .replace(/^\.?(?:claude|codex|gemini)(?=[-_.]|$)[-_.]?/i, '');
+    .replace(/^\.?(?:antigravity-cli|claude|codex|gemini|antigravity)(?=[-_.]|$)[-_.]?/i, '');
   const letter = /[\p{L}\p{N}]/u.exec(rest)?.[0];
   if (letter) return letter.toUpperCase();
-  return provider === 'codex' ? 'X' : provider === 'gemini' ? 'G' : '?';
+  return provider === 'codex' ? 'X' : provider === 'gemini' ? 'G' : provider === 'antigravity' ? 'A' : '?';
 }
 
 /** O selo "Codex" ao lado do nome da conta (não repete quando o nome já diz "Codex"). */
@@ -73,6 +77,11 @@ export function emptyOfficeHint(accounts: readonly Pick<AccountInfo, 'short' | '
   const keys = shortcutHint(accounts.filter((a) => providerOf(a) === 'claude'));
   const codex = accounts.some(isCodex);
   const gemini = accounts.some((a) => providerOf(a) === 'gemini');
+  const antigravity = accounts.some((a) => providerOf(a) === 'antigravity');
+  if (antigravity && codex && gemini) return tr('Abra o Claude Code{0}, o Codex, o Gemini CLI ou o Antigravity CLI em qualquer projeto e veja seu agente chegar.', [keys ? ` (${keys})` : '']);
+  if (antigravity && codex) return tr('Abra o Claude Code{0}, o Codex ou o Antigravity CLI em qualquer projeto e veja seu agente chegar.', [keys ? ` (${keys})` : '']);
+  if (antigravity && gemini) return tr('Abra o Claude Code{0}, o Gemini CLI ou o Antigravity CLI em qualquer projeto e veja seu agente chegar.', [keys ? ` (${keys})` : '']);
+  if (antigravity) return tr('Abra o Claude Code{0} ou o Antigravity CLI em qualquer projeto e veja seu agente chegar.', [keys ? ` (${keys})` : '']);
   if (!codex && !gemini) return tr('Abra o Claude Code em qualquer projeto{0} e veja seu agente chegar.', [keys ? ` (${keys})` : '']);
   if (!codex) return tr('Abra o Claude Code{0} ou o Gemini CLI em qualquer projeto e veja seu agente chegar.', [keys ? ` (${keys})` : '']);
   if (gemini) return tr('Abra o Claude Code{0}, o Codex ou o Gemini CLI em qualquer projeto e veja seu agente chegar.', [keys ? ` (${keys})` : '']);

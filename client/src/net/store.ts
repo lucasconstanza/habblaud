@@ -131,6 +131,14 @@ export class OfficeStore {
     this.startSSE();
   }
 
+  /** Busca o snapshot atual depois de uma ação manual; o SSE continua sendo a fonte das mudanças seguintes. */
+  async refreshSnapshot(): Promise<void> {
+    if (this.mock) return;
+    const response = await fetch('/api/snapshot', { cache: 'no-store' });
+    if (!response.ok) throw new Error(tr('Não foi possível recarregar o escritório.'));
+    this.applySnapshot(await response.json() as OfficeSnapshot);
+  }
+
   disconnect(): void {
     this.stopped = true;
     if (typeof removeEventListener === 'function') removeEventListener('online', this.onOnline);

@@ -332,6 +332,19 @@ describe('projeção: regras', () => {
     expect(validate(mixed)).toEqual([]);
   });
 
+  it('Antigravity CLI não sobe ao World nem vira Claude', () => {
+    const alone = project(input([room('/p/google')], [agent('agy1', '/p/google', { provider: 'antigravity', account: '.antigravity-cli' })]), new FakeIds(), NOW);
+    expect(alone.floors).toEqual([]);
+    const ids = new FakeIds();
+    const mixed = project(input([room('/p/google')], [
+      agent('c1', '/p/google', { provider: 'codex' }),
+      agent('agy2', '/p/google', { provider: 'antigravity', account: '.antigravity-cli' }),
+    ]), ids, NOW);
+    expect(agentsOf(mixed).map((a) => a.provider)).toEqual(['codex']);
+    expect(ids.calls).not.toContain('agy2');
+    expect(validate(mixed)).toEqual([]);
+  });
+
   it('tokens só com tokensVisible, arredondados a 2 algarismos', () => {
     const base = input([room('/p/a')], [agent('m1', '/p/a')], { tokens: { day: 1_234_567, week: 98_765_432.7 } });
     expect(project(base, new FakeIds(), NOW).tokens).toEqual({ day: 1_200_000, week: 99_000_000 });

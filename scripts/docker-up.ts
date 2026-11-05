@@ -16,6 +16,8 @@
 //    sessions/, archived_sessions/ e thread-writer-locks/ de cada uma, somente leitura, em /codex/<conta>/... —
 //    nunca auth.json, config.toml, shell_snapshots/, history.jsonl, logs nem os SQLite. Vão em HABBLAUD_CODEX_DIRS
 //    e, com `provider: 'codex'` e a pasta do HOST (onde o `codex queue` roda), em HABBLAUD_ACCOUNTS.
+//    Antigravity CLI: somente brain/ e, quando existe, o arquivo cache/last_conversations.json,
+//    ambos em leitura em /antigravity/antigravity-cli; nunca a pasta inteira da conta.
 // 3. Migra o que sobrou do nome antigo (CodeTown, até a 0.3.2): ~/.codetown vira ~/.habblaud, o container
 //    `codetown` e a rede codetown_default saem e, se o volume novo ainda não existe, os dados de
 //    codetown_codetown-data são copiados para ele (o antigo fica, para apagar à mão). Avisa de CODETOWN_*
@@ -70,6 +72,8 @@ const MOUNTED_SUBDIRS = ['projects', 'sessions'] as const;
 const CODEX_CONTAINER_ROOT = '/codex';
 /** Somente ~/.gemini/tmp entra no container: configurações e credenciais permanecem no host. */
 const GEMINI_CONTAINER_ROOT = '/gemini';
+/** Somente o histórico observável do Antigravity CLI; nenhuma configuração ou credencial. */
+const ANTIGRAVITY_CONTAINER_DIR = '/antigravity/antigravity-cli';
 /**
  * Somente estas subpastas de cada pasta do Codex entram no container (as conversas e os locks das sessões abertas).
  * auth.json, config.toml, shell_snapshots/, history.jsonl, logs e os SQLite ficam no host.
@@ -169,6 +173,14 @@ export interface GeminiMount {
   account: DetectedAccount;
 }
 
+export interface AntigravityMount {
+  hostDir: string;
+  mountDir: string;
+  bind: BindMount;
+  /** Índice projeto -> conversa mais recente; arquivo isolado, nunca a pasta cache/. */
+  cacheBind?: BindMount;
+}
+
 /** Janelas de uso que o servidor exibe (as demais chaves do cache são ignoradas). */
 const USAGE_WINDOWS = ['five_hour', 'seven_day', 'seven_day_opus', 'seven_day_sonnet'] as const;
 
@@ -195,6 +207,15 @@ function realDir(p: string): string | undefined {
   try {
     const real = realpathSync(p);
     return statSync(real).isDirectory() ? real : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function realFile(p: string): string | undefined {
+  try {
+    const real = realpathSync(p);
+    return statSync(real).isFile() ? real : undefined;
   } catch {
     return undefined;
   }
@@ -241,8 +262,9 @@ export function planCodexMounts(dirs: string[], accounts: DetectedAccount[], res
 }
 
 /** Monta exclusivamente o histórico tmp/; nunca settings.json, oauth_creds.json ou outras credenciais. */
-export function planGeminiMount(env: NodeJS.ProcessEnv, home: string, resolveDir: (p: string) => string | undefined = realDir): GeminiMount | undefined {
-  if (env.HABBLAUD_GEMINI?.trim() === '0') return undefined;
+export function planGeminiMount(env: NodeJS.ProcessEnv, home: string, resolveDir: (p: string) => string | undefined = realDir, antigravityPresent = false): GeminiMount | undefined {
+  const flag = env.HABBLAUD_GEMINI?.trim();
+  if (flag === '0' || (antigravityPresent && flag !== '1')) return undefined;
   const hostDir = discoverGeminiDir(env, home);
   if (!hostDir) return undefined;
   const accountRoot = realDir(hostDir);
@@ -253,6 +275,29 @@ export function planGeminiMount(env: NodeJS.ProcessEnv, home: string, resolveDir
   const account = detectGeminiAccount(hostDir);
   const mountDir = posix.join(GEMINI_CONTAINER_ROOT, account.id);
   return { hostDir, mountDir, account, bind: { source, target: posix.join(mountDir, 'tmp') } };
+}
+
+/** Expõe brain/ e, se existir, o arquivo de índice necessário; recusa symlinks fora da conta. */
+export function planAntigravityMount(
+  env: NodeJS.ProcessEnv,
+  home: string,
+  resolveDir: (p: string) => string | undefined = realDir,
+  resolveFile: (p: string) => string | undefined = realFile,
+): AntigravityMount | undefined {
+  if (env.HABBLAUD_ANTIGRAVITY?.trim() === '0') return undefined;
+  const raw = env.HABBLAUD_ANTIGRAVITY_DIR?.trim();
+  const hostDir = resolve(raw ? (raw.startsWith('~') ? join(home, raw.slice(1)) : raw) : join(home, '.gemini', 'antigravity-cli'));
+  const accountRoot = realDir(hostDir);
+  const source = resolveDir(join(hostDir, 'brain'));
+  if (!accountRoot || !source) return undefined;
+  const subpath = relative(accountRoot, source);
+  if (!subpath || subpath === '..' || subpath.startsWith(`..${sep}`) || isAbsolute(subpath)) return undefined;
+  const cache = resolveFile(join(hostDir, 'cache', 'last_conversations.json'));
+  const cacheSubpath = cache ? relative(accountRoot, cache) : undefined;
+  const cacheBind = cache && cacheSubpath && cacheSubpath !== '..' && !cacheSubpath.startsWith(`..${sep}`) && !isAbsolute(cacheSubpath)
+    ? { source: cache, target: posix.join(ANTIGRAVITY_CONTAINER_DIR, 'cache', 'last_conversations.json') }
+    : undefined;
+  return { hostDir, mountDir: ANTIGRAVITY_CONTAINER_DIR, bind: { source, target: posix.join(ANTIGRAVITY_CONTAINER_DIR, 'brain') }, cacheBind };
 }
 
 /** Metadados das contas do Codex para HABBLAUD_ACCOUNTS: `provider: 'codex'` e a pasta do HOST em `configDir`. */
@@ -343,6 +388,7 @@ export function renderOverride(
   remoteTlsDir?: string,
   extraPorts: string[] = [],
   gemini?: GeminiMount,
+  antigravity?: AntigravityMount,
 ): string {
   const env: Array<[string, string]> = [
     ['HABBLAUD_CLAUDE_DIRS', mounts.map((m) => m.mountDir).join(',')],
@@ -350,14 +396,16 @@ export function renderOverride(
   ];
   if (codex.length) env.push(['HABBLAUD_CODEX_DIRS', codex.map((m) => m.mountDir).join(',')]);
   if (gemini) env.push(['HABBLAUD_GEMINI_DIR', gemini.mountDir]);
+  if (antigravity) env.push(['HABBLAUD_ANTIGRAVITY_DIR', antigravity.mountDir]);
   if (usageDir) env.push(['HABBLAUD_USAGE_DIR', CONTAINER_USAGE_DIR]);
   if (timeZone) env.push(['TZ', timeZone]);
   const lines = [
     `# Gerado por scripts/docker-up.ts em ${generatedAt.toISOString()} — não edite: é recriado a cada \`npm run docker:up\`.`,
-    '# Contém caminhos do host e e-mails das contas: fica fora do git e com permissão 600.',
+    '# Contém caminhos do host e e-mails das contas: fica fora do git e com acesso restrito.',
     '# Montagens: SOMENTE <conta>/projects, <conta>/sessions e a pasta do uso do statusline, todas somente leitura.',
     ...(codex.length ? ['# Codex: SOMENTE <pasta>/sessions, <pasta>/archived_sessions e <pasta>/thread-writer-locks, somente leitura.'] : []),
     ...(gemini ? ['# Gemini CLI: SOMENTE <pasta>/tmp, sem settings.json nem credenciais, somente leitura.'] : []),
+    ...(antigravity ? ['# Antigravity CLI: SOMENTE brain/ e cache/last_conversations.json (se existir), sem credenciais, somente leitura.'] : []),
     'services:',
     `  ${SERVICE}:`,
     '    environment:',
@@ -367,6 +415,10 @@ export function renderOverride(
   if (extraPorts.length) lines.push('    ports:', ...extraPorts.map((p) => `      - ${yamlString(p)}`));
   const binds = [...mounts, ...codex].flatMap((m) => m.binds);
   if (gemini) binds.push(gemini.bind);
+  if (antigravity) {
+    binds.push(antigravity.bind);
+    if (antigravity.cacheBind) binds.push(antigravity.cacheBind);
+  }
   if (usageDir) binds.push({ source: usageDir, target: CONTAINER_USAGE_DIR });
   // Acesso remoto: SÓ a pasta do certificado do servidor (a chave da CA fica no host).
   if (remoteTlsDir) binds.push({ source: remoteTlsDir, target: CONTAINER_REMOTE_TLS_DIR });
@@ -719,13 +771,6 @@ async function up(opts: Options, port: number): Promise<void> {
   const dirs = discoverClaudeDirs(process.env, HOME);
   const accounts = detectAccounts(dirs, { home: HOME, env: process.env });
   const mounts = planMounts(dirs, accounts);
-  if (!mounts.length) {
-    warn(
-      tr('nenhuma pasta do Claude Code (com projects/ ou sessions/) foi encontrada em ~/.claude*.\n') +
-        tr('  O escritório vai abrir vazio (dá para ligar o modo demonstração na interface).\n') +
-        tr('  Se as contas estiverem em outro lugar: HABBLAUD_CLAUDE_DIRS=/caminho/conta1,/caminho/conta2 npm run docker:up'),
-    );
-  }
   for (const m of mounts) {
     const subdirs = m.binds.map((b) => posix.basename(b.target)).join(' e ');
     say(tr('Conta {0} ({1}): monta {2} de {3}, somente leitura.', [m.account.short, m.account.id, subdirs, tildify(m.hostDir)]));
@@ -752,16 +797,35 @@ async function up(opts: Options, port: number): Promise<void> {
     }
   }
 
-  const geminiEnv = { ...process.env, HABBLAUD_GEMINI: process.env.HABBLAUD_GEMINI ?? readEnvValue(readEnvFile(), 'HABBLAUD_GEMINI') };
-  const geminiMount = planGeminiMount(geminiEnv, HOME);
+  const envFile = readEnvFile();
+  const antigravityEnv = {
+    ...process.env,
+    HABBLAUD_ANTIGRAVITY: process.env.HABBLAUD_ANTIGRAVITY ?? readEnvValue(envFile, 'HABBLAUD_ANTIGRAVITY'),
+    HABBLAUD_ANTIGRAVITY_DIR: process.env.HABBLAUD_ANTIGRAVITY_DIR ?? readEnvValue(envFile, 'HABBLAUD_ANTIGRAVITY_DIR'),
+  };
+  const antigravityMount = planAntigravityMount(antigravityEnv, HOME);
+  if (antigravityMount) say(tr('Conta {0} ({1}): monta {2} de {3}, somente leitura.', ['Antigravity', 'CLI', 'brain/', tildify(antigravityMount.hostDir)]));
+  const geminiEnv = {
+    ...process.env,
+    HABBLAUD_GEMINI: process.env.HABBLAUD_GEMINI ?? readEnvValue(envFile, 'HABBLAUD_GEMINI'),
+    HABBLAUD_GEMINI_DIR: process.env.HABBLAUD_GEMINI_DIR ?? readEnvValue(envFile, 'HABBLAUD_GEMINI_DIR'),
+  };
+  const geminiMount = planGeminiMount(geminiEnv, HOME, realDir, !!antigravityMount);
   if (geminiMount) say(tr('Gemini CLI: monta tmp/ de {0}, somente leitura.', [tildify(geminiMount.hostDir)]));
+  if (!mounts.length && !codexMounts.length && !geminiMount && !antigravityMount) {
+    warn(
+      tr('nenhuma pasta do Claude Code (com projects/ ou sessions/) foi encontrada em ~/.claude*.\n') +
+        tr('  O escritório vai abrir vazio (dá para ligar o modo demonstração na interface).\n') +
+        tr('  Se as contas estiverem em outro lugar: HABBLAUD_CLAUDE_DIRS=/caminho/conta1,/caminho/conta2 npm run docker:up'),
+    );
+  }
 
   migrateStateDir();
   const usageDir = ensureUsageDir();
   if (usageDir) say(tr('Uso ao vivo (mod ou tap de statusline): monta {0} em {1}, somente leitura.', [tildify(USAGE_DIR), CONTAINER_USAGE_DIR]));
   const remoteTlsDir = prepareRemoteTls();
   const remotePorts = remoteTlsDir || remoteInsecure() ? remotePortsToPublish() : [];
-  writePrivateOverride(OVERRIDE_FILE, renderOverride(mounts, new Date(), usageDir, hostTimeZone(), codexMounts, remoteTlsDir, remotePorts, geminiMount));
+  writePrivateOverride(OVERRIDE_FILE, renderOverride(mounts, new Date(), usageDir, hostTimeZone(), codexMounts, remoteTlsDir, remotePorts, geminiMount, antigravityMount));
   say(tr('docker-compose.override.yml gerado.'));
 
   const plan = planUp(inspectDocker(), opts.build);
@@ -790,6 +854,13 @@ async function up(opts: Options, port: number): Promise<void> {
   if (geminiMount) {
     const src = health.sources?.find((s) => s.provider === 'gemini');
     if (src) say(tr('  Gemini CLI ({0}): {1} sessão(ões) confirmada(s) por hook.', [src.label, src.sessions]));
+  }
+  if (antigravityMount) {
+    const src = health.sources?.find((s) => s.provider === 'antigravity');
+    if (src) {
+      const state = src.ok ? plural(src.sessions, tr('sessão aberta'), tr('sessões abertas')) : tr('erro ao ler ({0})', [src.error ?? tr('desconhecido')]);
+      say(tr('  Conta {0} ({1}): {2}{3}', ['Antigravity', src.label, state, '']));
+    }
   }
   for (const line of modHint(updateMods(dirs, accounts))) say(line);
   // Com a cópia falha, os dados só existem no volume antigo: nada de sugerir apagá-lo.

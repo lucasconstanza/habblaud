@@ -61,6 +61,7 @@ describe('caixa de mensagem (peças puras)', () => {
     expect(off(agent({ kind: 'sub', parentId: 'acc:1' }))).toMatch(/^Subagentes não recebem/);
     expect(off(agent({ kind: 'sub', status: 'done' }))).toMatch(/^Subagentes/);
     expect(off(agent({ status: 'offline' }))).toBe('Sessão encerrada');
+    expect(off(agent({ provider: 'antigravity' }))).toBe('Para responder, use o Antigravity CLI');
     expect(off(undefined)).toBe('Sessão encerrada');
     expect(off(agent(), { enabled: false })).toMatch(/terminal do Claude Code/);
     expect(off(agent({ canMessage: undefined }), { enabled: false })).toMatch(/terminal do Claude Code/);

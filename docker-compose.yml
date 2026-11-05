@@ -8,7 +8,11 @@
 #   - do Codex, SOMENTE <pasta>/sessions, <pasta>/archived_sessions e <pasta>/thread-writer-locks em
 #     /codex/<conta>/... (nunca auth.json, config.toml, history.jsonl, logs nem os bancos SQLite);
 #   - do Gemini CLI, SOMENTE <pasta>/tmp em /gemini/<conta>/tmp (nunca settings.json nem credenciais);
-#   - HABBLAUD_CLAUDE_DIRS, HABBLAUD_CODEX_DIRS, HABBLAUD_GEMINI_DIR, HABBLAUD_ACCOUNTS e HABBLAUD_USAGE_DIR.
+#   - do Antigravity CLI, SOMENTE <pasta>/brain e o arquivo cache/last_conversations.json (se existir),
+#     em /antigravity/antigravity-cli (nunca settings.json, cache inteiro, keyrings ou tokens);
+#     quando existe, o Gemini CLI legado requer HABBLAUD_GEMINI=1;
+#   - HABBLAUD_CLAUDE_DIRS, HABBLAUD_CODEX_DIRS, HABBLAUD_GEMINI_DIR,
+#     HABBLAUD_ANTIGRAVITY_DIR, HABBLAUD_ACCOUNTS e HABBLAUD_USAGE_DIR.
 # O Compose mescla o override automaticamente em qualquer `docker compose ...` rodado nesta pasta.
 name: habblaud
 
@@ -40,8 +44,10 @@ services:
       HABBLAUD_LANG: ${HABBLAUD_LANG:-}
       # 0 desliga as sessões do Codex no escritório.
       HABBLAUD_CODEX: ${HABBLAUD_CODEX:-}
-      # 0 desliga o Gemini CLI; docker:up monta somente ~/.gemini/tmp quando presente.
+      # 0 desliga o Gemini CLI; com Antigravity detectado, 1 habilita o Gemini legado adicionalmente.
       HABBLAUD_GEMINI: ${HABBLAUD_GEMINI:-}
+      # 0 desliga o Antigravity CLI; docker:up monta brain/ e o índice de projetos quando presentes.
+      HABBLAUD_ANTIGRAVITY: ${HABBLAUD_ANTIGRAVITY:-}
       # 1 liga o Novo agente pelo escritório (no Docker, quem começa a sessão é o auxiliar do host, npm run
       # codex:bridge; o terminal interativo em si não roda no container).
       HABBLAUD_PTY: ${HABBLAUD_PTY:-}

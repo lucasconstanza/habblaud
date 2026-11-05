@@ -5,7 +5,7 @@
 <h1 align="center">Habblaud</h1>
 
 <p align="center">
-  <b>Le bureau virtuel de vos agents Claude Code, Codex et Gemini CLI.</b><br />
+  <b>Le bureau virtuel de vos agents Claude Code, Codex et Antigravity CLI.</b><br />
   Chaque projet devient une salle, chaque agent un personnage en pixel art qui montre, en temps réel, ce qu'il est en train de faire.
 </p>
 
@@ -233,7 +233,38 @@ Ensuite, **ouvrez Codex et validez les hooks de Habblaud dans `/hooks`** : Codex
 votre validation (Habblaud n'enregistre jamais cette validation à votre place). Avec Habblaud dans Docker, pour envoyer
 des messages aux sessions Codex, laissez aussi tourner `npm run codex:bridge` sur le Mac (voir [Codex](#codex)).
 
-### 5. Gemini CLI dans le bureau (facultatif)
+### 5. Antigravity CLI dans le bureau (compte Google)
+
+Habblaud reconnaît Antigravity CLI (`agy`) comme un outil distinct de l'ancien Gemini CLI. Le compte Google
+apparaît en haut ; les sessions observées dans le même projet partagent une salle avec Claude Code et Codex. Sur
+l'ordinateur où tourne `agy`, activez la capture locale :
+
+```powershell
+npm run antigravity:status
+npm run antigravity:install -- --dry-run
+npm run antigravity:install
+```
+
+L'installateur préserve les autres hooks et la ligne de statut, et crée des sauvegardes avant modification.
+Habblaud ne reçoit que des métadonnées de session et des groupes de quota fournis par la CLI, sans lire les
+identifiants ni envoyer les prompts ou réponses. Il affiche le **pourcentage restant** uniquement si la CLI fournit
+une fraction valide. Pour consulter toutes les limites et les crédits actuels, lancez
+[`/usage`](https://antigravity.google/docs/cli/commands/usage) dans Antigravity CLI. Les messages et autorisations
+restent dans la CLI. `npm run antigravity:uninstall` retire cette capture.
+
+La dernière lecture des quotas, son heure, l'adresse e-mail et l'abonnement sont conservés dans le cache privé
+`antigravity-quota.json` du répertoire de données de Habblaud (`~/.habblaud` avec Node ; `/data` avec Docker).
+Elle survit au redémarrage et apparaît comme **lecture ancienne** après 30 minutes ; aucun prompt ni transcript
+n'y est enregistré. Les quotas sont actualisés lorsque la TUI `agy` exécute la ligne de statut. La commande
+`agy --print /usage` affiche un rapport dans la CLI sans déclencher cette capture de Habblaud.
+
+### 6. Ancien Gemini CLI (clé API ou licence entreprise)
+
+[Google a annoncé](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/)
+que Gemini CLI ne servirait plus les comptes personnels gratuits, Pro et Ultra à partir du 18 juin 2026. Les
+licences Gemini Code Assist Standard/Enterprise et les clés API payantes restent prises en charge. Habblaud conserve
+l'intégration suivante pour ces utilisateurs. L'ancien Gemini CLI est détecté automatiquement uniquement si
+Antigravity CLI est absent ; utilisez `HABBLAUD_GEMINI=1` pour afficher les deux.
 
 Habblaud détecte `~/.gemini/tmp` et affiche le compte et l'historique de Gemini CLI. Dans Docker, `npm run docker:up`
 monte uniquement ce dossier en lecture seule ; les identifiants restent sur l'ordinateur. Une conversation récente
@@ -751,6 +782,8 @@ dans le même fichier.
 | **Mod Habblaud** (recommandé) | En direct, comme décrit ci-dessus. Remplace la dérivation : `mod:install` retire la dérivation du compte. |
 | Dérivation de statusline (Claude Code antérieur à 2.1.287) | En direct, via la commande de statusline, dans le même fichier. |
 | Cache de `/usage` (toujours actif) | Claude Code enregistre le dernier résultat de la commande `/usage`. En mode Node, Habblaud le relit toutes les 60 s ; dans Docker, c'est la valeur lue lors du dernier `npm run docker:up` qui compte. Ne change que lorsque quelqu'un lance `/usage`. |
+
+Sur la carte du compte Claude, **Actualiser l'utilisation** exécute à la demande `claude --print --no-session-persistence --output-format json '/usage'` pour le compte sélectionné et relit le cache. Cela nécessite Habblaud lancé localement avec Node et Claude Code installé et authentifié ; dans Docker, l'action renvoie 503, car la CLI de l'hôte ne tourne pas dans le conteneur. Claude peut omettre la fenêtre de 5 h ; elle reste alors inconnue même si l'utilisation hebdomadaire est à jour.
 
 Les sources sont des fichiers locaux : aucune ne lit de mots de passe ou de tokens, ni ne fait d'appels réseau. C'est
 toujours la source aux chiffres les plus récents qui l'emporte. Les chiffres de plus de 30 minutes apparaissent comme

@@ -1,5 +1,5 @@
-// Uma conta local do Gemini CLI. Só confirma a pasta; nunca lê oauth_creds.json ou settings.json.
-import { existsSync, statSync } from 'node:fs';
+// Uma conta local do Gemini CLI. Nunca lê credenciais; consulta só o tipo de autenticação no settings.json.
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join, resolve, win32 } from 'node:path';
 import { ACCOUNT_COLORS, type DetectedAccount } from '../../accounts/detect';
@@ -15,6 +15,22 @@ export function discoverGeminiDir(env: NodeJS.ProcessEnv = process.env, home = e
   } catch {
     return undefined;
   }
+}
+
+/** OAuth pessoal desta CLI não é mais aceito; olha só a opção de autenticação, nunca credenciais. */
+export function unsupportedPersonalGemini(dir: string): boolean {
+  try {
+    const settings = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')) as Record<string, unknown>;
+    const security = settings.security as Record<string, unknown> | undefined;
+    const auth = security?.auth as Record<string, unknown> | undefined;
+    return auth?.selectedType === 'oauth-personal';
+  } catch { return false; }
+}
+
+export function legacyGeminiEnabled(env: NodeJS.ProcessEnv, antigravityAvailable: boolean, personalUnsupported: boolean): boolean {
+  if (env.HABBLAUD_GEMINI === '0') return false;
+  if (env.HABBLAUD_GEMINI === '1') return true;
+  return !antigravityAvailable && !personalUnsupported;
 }
 
 export function detectGeminiAccount(dir: string, taken: readonly DetectedAccount[] = []): DetectedAccount {

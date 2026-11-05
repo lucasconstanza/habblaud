@@ -12,13 +12,16 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
-- **Gemini CLI no escritório local e no Docker.** A terceira conta aparece com histórico e presença baseada nos hooks
-  da CLI. O Docker monta só `~/.gemini/tmp` em leitura, sem credenciais. Agentes do Claude Code, Codex e Gemini CLI na
+- **Antigravity CLI como terceira ferramenta.** A conta Google usa um provedor próprio, com presença e histórico locais, selo no escritório e grupos de cota fornecidos pela linha de status da CLI. O cartão mostra apenas porcentagens restantes verificadas; `/usage` na CLI consulta todos os limites. Mensagens e permissões permanecem na CLI.
+- **Gemini CLI legado no escritório local e no Docker.** Para API key ou licença empresarial, a conta aparece com histórico e presença baseada nos hooks
+  da CLI. O Docker monta só `~/.gemini/tmp` em leitura, sem credenciais. Agentes do Claude Code, Codex e das duas ferramentas Google na
   mesma pasta compartilham uma sala enquanto houver sessão ativa.
 - **Verificação no Windows.** A integração contínua agora roda typecheck, traduções, testes e build também no Windows.
 
 ### Corrigido
 
+- **Cota Google após reinício.** A última leitura real do Antigravity CLI fica em cache local protegido, com horário visível no cartão; reiniciar o Habblaud não apaga os grupos capturados. Uma leitura transitória vazia não substitui a anterior, e trocar de conta descarta os dados da conta antiga.
+- **Consulta de uso do Claude sob demanda.** O cartão permite atualizar a conta selecionada pela CLI autenticada, sem ler credenciais nem iniciar turnos de modelo. A ação só funciona pelo acesso local, tem limite de frequência e informa quando o Claude não fornece a janela de 5 horas; no Docker explica que a CLI do host não está disponível.
 - **Cartão do Gemini CLI.** Mostra a consulta `/stats model` da própria CLI para cota por modelo, sem aplicar as instruções de instalação ou as janelas de 5 horas e semana do Claude Code.
 - **Uso antigo do Claude Code.** Percentuais de uma leitura desatualizada ficam apenas na dica; barras e números atuais aparecem como desconhecidos. Quando o mod ou o tap já capturou uso, o cartão orienta a retomar a sessão em vez de reinstalar a integração.
 - **Hooks do Gemini no Windows.** O instalador usa a sintaxe de chamada do PowerShell para executar o Node em um caminho entre aspas; o comando anterior gerava `ParserError` e não observava as sessões.
