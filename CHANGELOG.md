@@ -20,6 +20,8 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Segurança TLS no Windows.** As pastas temporárias, a CA local e a chave do servidor recebem ACL privada antes de gravar ou mover chaves; o teste confere o acesso real no NTFS.
+- **Estado da sessão Claude.** O leitor do registro relê os arquivos pequenos a cada ciclo, pois duas gravações rápidas podem conservar mtime e tamanho e esconder a transição de ocupado para ocioso.
 - **Cota Google após reinício.** A última leitura real do Antigravity CLI fica em cache local protegido, com horário visível no cartão; reiniciar o Habblaud não apaga os grupos capturados. Uma leitura transitória vazia não substitui a anterior, e trocar de conta descarta os dados da conta antiga.
 - **Consulta de uso do Claude sob demanda.** O cartão permite atualizar a conta selecionada pela CLI autenticada, sem ler credenciais nem iniciar turnos de modelo. A ação só funciona pelo acesso local, tem limite de frequência e informa quando o Claude não fornece a janela de 5 horas; no Docker explica que a CLI do host não está disponível.
 - **Cartão do Gemini CLI.** Mostra a consulta `/stats model` da própria CLI para cota por modelo, sem aplicar as instruções de instalação ou as janelas de 5 horas e semana do Claude Code.

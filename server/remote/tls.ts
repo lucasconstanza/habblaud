@@ -20,6 +20,7 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSyn
 import { hostname, networkInterfaces, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { tr } from '../../shared/i18n';
+import { protectPrivateDirectory, protectPrivateFile } from '../windows-acl';
 
 export const CA_DAYS = 3650;
 export const SERVER_DAYS = 397;
@@ -155,6 +156,7 @@ function openssl(run: Run, args: string[]): void {
 function ensureDir(dir: string, mode: number): void {
   mkdirSync(dir, { recursive: true, mode });
   chmodSync(dir, mode);
+  if (mode === 0o700) protectPrivateDirectory(dir);
 }
 
 function constraintsFile(paths: TlsPaths): string {
@@ -194,12 +196,16 @@ export function nameConstraintLines(dns: readonly string[]): string[] {
  * (além de localhost e .local).
  */
 export function ensureCa(paths: TlsPaths, label: string, run: Run = spawnSync, domains: readonly string[] = []): boolean {
-  if (existsSync(paths.caKey) && existsSync(paths.caCert)) return false;
   ensureDir(paths.base, 0o700);
   ensureDir(paths.caDir, 0o700);
+  if (existsSync(paths.caKey) && existsSync(paths.caCert)) {
+    protectPrivateFile(paths.caKey);
+    return false;
+  }
   const dns = caDomains(domains);
   const work = join(tmpdir(), `habblaud-ca-${randomBytes(6).toString('hex')}`);
   mkdirSync(work, { mode: 0o700 });
+  protectPrivateDirectory(work);
   try {
     const cnf = join(work, 'ca.cnf');
     writeFileSync(
@@ -224,8 +230,10 @@ export function ensureCa(paths: TlsPaths, label: string, run: Run = spawnSync, d
     const crt = join(work, 'ca.crt');
     openssl(run, ['req', '-x509', '-new', '-newkey', 'rsa:2048', '-nodes', '-sha256', '-days', String(CA_DAYS), '-keyout', key, '-out', crt, '-config', cnf]);
     chmodSync(key, 0o600);
+    protectPrivateFile(key);
     writeFileSync(constraintsFile(paths), `${JSON.stringify({ dns })}\n`, { mode: 0o600 });
     renameSync(key, paths.caKey);
+    protectPrivateFile(paths.caKey);
     renameSync(crt, paths.caCert);
     return true;
   } finally {
@@ -237,8 +245,10 @@ export function ensureCa(paths: TlsPaths, label: string, run: Run = spawnSync, d
 export function issueServerCert(paths: TlsPaths, targets: CertTargets, run: Run = spawnSync): void {
   if (!existsSync(paths.caKey) || !existsSync(paths.caCert)) throw new Error(tr('a CA local não existe: rode npm run remote:setup'));
   ensureDir(paths.serverDir, 0o755);
+  protectPrivateDirectory(paths.serverDir);
   const work = join(tmpdir(), `habblaud-cert-${randomBytes(6).toString('hex')}`);
   mkdirSync(work, { mode: 0o700 });
+  protectPrivateDirectory(work);
   try {
     const key = join(work, 'server.key');
     const csr = join(work, 'server.csr');
@@ -264,9 +274,11 @@ export function issueServerCert(paths: TlsPaths, targets: CertTargets, run: Run 
     ]);
     // Legível pelo usuário do container (a pasta-mãe, 700, é quem protege a chave no host).
     chmodSync(key, 0o644);
+    protectPrivateFile(key);
     chmodSync(crt, 0o644);
     // Troca atômica (rename), na ordem chave -> certificado: quem recarrega ao ver o certificado novo já acha a chave nova.
     renameSync(key, paths.serverKey);
+    protectPrivateFile(paths.serverKey);
     renameSync(crt, paths.serverCert);
     copyFileSync(paths.caCert, paths.publicCa);
     chmodSync(paths.publicCa, 0o644);

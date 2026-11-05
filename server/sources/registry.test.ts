@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { tempDir } from '../test/fixtures';
@@ -68,6 +68,19 @@ describe('registro de sessões', () => {
     expect(reader.poll().entries[0].status).toBe('idle');
     rmSync(file);
     expect(reader.poll().entries).toEqual([]);
+  });
+
+  it('lê status novo mesmo quando mtime e tamanho não mudam', () => {
+    const file = join(sessions, '21.json');
+    writeFileSync(file, entry(21, { status: 'busy' }));
+    const stamp = statSync(file).mtime;
+    const size = statSync(file).size;
+    const reader = new RegistryReader(tmp.dir, { checkPid: false });
+    expect(reader.poll().entries[0].status).toBe('busy');
+    writeFileSync(file, entry(21, { status: 'idle' }));
+    utimesSync(file, stamp, stamp);
+    expect(statSync(file).size).toBe(size);
+    expect(reader.poll().entries[0].status).toBe('idle');
   });
 
   it('pasta sessions/ ausente é reportada como fonte com problema', () => {

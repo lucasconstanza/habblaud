@@ -24,4 +24,9 @@ Limite verificado naquela rodada: uma sessão Gemini autenticada não pôde comp
 
 Verificações finais desta rodada: `npm run typecheck`, `npm run i18n:check` (3052/3052 em EN, ES e FR), `npm test -- --reporter=dot --silent` (1930 passaram, 16 ignorados), `npm run build`, `docker compose config --quiet`, `docker compose build --quiet`, `npm audit --audit-level=moderate` (0 vulnerabilidades) e `git diff --check` passaram. No navegador, os três cartões e a idade da leitura Google apareceram no desktop e no celular, sem erro de JavaScript nem rolagem horizontal. O botão Claude retornou HTTP 200 e atualizou o cache da conta sem abrir sessão.
 
-A publicação da branch foi tentada, mas o remoto recusou com HTTP 403 para a conta GitHub ativa `lucasconstanza`. Não existe fork dessa conta no GitHub. A verificação da CI remota permanece em HAB-004 até haver um destino com permissão de escrita.
+A publicação direta da branch no repositório de origem foi tentada, mas o remoto recusou com HTTP 403 para a conta GitHub ativa `lucasconstanza`. O fork foi criado na continuação abaixo; a CI remota ainda está em HAB-004.
+
+## 2026-11-05 — Verificação da CI no fork
+
+- **HAB-015 — Restringir chaves TLS no Windows.** A primeira CI mostrou que `chmod` não representa a ACL NTFS. Pastas de trabalho, CA e chave do servidor passam a receber ACL privada; o teste Windows inspeciona a DACL real. A geração OpenSSL com essa proteção passou localmente (14 testes) no commit `fix(runtime): secure Windows TLS and session updates`.
+- **HAB-016 — Não perder mudanças rápidas de status Claude.** O cache do registro dependia só de mtime e tamanho; `busy` e `idle` têm o mesmo tamanho e podem ser gravados no mesmo instante. O leitor agora relê o JSON pequeno em cada ciclo, mantendo a última versão válida durante gravação parcial. Testes de registro e watcher passaram no commit `fix(runtime): secure Windows TLS and session updates`.

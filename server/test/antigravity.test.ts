@@ -19,12 +19,14 @@ const cwd = 'C:\\Users\\Test\\Project';
 describe('Antigravity CLI', () => {
   it('preserva grupos alheios e instalação idempotente', () => {
     const before = { 'orca-status': { PreInvocation: [{ command: 'orca' }] } };
-    const installed = updateAntigravityHooks(before, 'install', 'C:\\Habblaud\\mod\\habblaud-antigravity\\hook.mjs');
+    const hookScript = join(process.cwd(), 'mod', 'habblaud-antigravity', 'hook.mjs');
+    const statusScript = join(process.cwd(), 'mod', 'habblaud-antigravity', 'statusline.mjs');
+    const installed = updateAntigravityHooks(before, 'install', hookScript);
     expect(installed['orca-status']).toEqual(before['orca-status']);
-    expect(updateAntigravityHooks(installed, 'install', 'C:\\Habblaud\\mod\\habblaud-antigravity\\hook.mjs')).toEqual(installed);
+    expect(updateAntigravityHooks(installed, 'install', hookScript)).toEqual(installed);
     expect(updateAntigravityHooks(installed, 'uninstall')).toEqual(before);
     const settings = { model: 'chosen' };
-    const line = updateAntigravitySettings(settings, 'install', 'C:\\Habblaud\\mod\\habblaud-antigravity\\statusline.mjs');
+    const line = updateAntigravitySettings(settings, 'install', statusScript);
     expect(line).toMatchObject({ model: 'chosen', statusLine: { stack_with_default: true } });
     expect(updateAntigravitySettings(line, 'uninstall')).toEqual(settings);
     expect(() => updateAntigravitySettings({ statusLine: { command: 'other' } }, 'install')).toThrow();
