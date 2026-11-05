@@ -128,6 +128,27 @@ describe('WorldClient', () => {
     expect(await client.altcha()).toEqual({ ok: false, status: 502, code: 'world_bad_response' });
   });
 
+  it('cancela resposta em blocos sem Content-Length assim que passa do limite', async () => {
+    let pulls = 0;
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulls++;
+        controller.enqueue(new Uint8Array(64 * 1024));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const client = new WorldClient({
+      baseUrl: 'http://127.0.0.1:1', version: '1',
+      fetch: (async () => new Response(body, { status: 200, headers: { 'Content-Type': 'application/json' } })) as typeof fetch,
+    });
+    expect(await client.altcha()).toEqual({ ok: false, status: 502, code: 'world_bad_response' });
+    expect(cancelled).toBe(true);
+    expect(pulls).toBeLessThan(10);
+  });
+
   it('excluir a conta e exportar os dados: POST com o código, GET do JSON como veio (até 8 MB, o resto é recusado)', async () => {
     const big = { account: { email: 'ana@exemplo.com' }, likesGiven: Array.from({ length: 30_000 }, (_, i) => `b_${i.toString(16).padStart(8, '0')}`) };
     const body = JSON.stringify(big);

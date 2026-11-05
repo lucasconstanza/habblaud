@@ -8,14 +8,21 @@
 //
 //   POST /api/codex/events   (hook)   {account?, codexHome?, event: <stdin do hook, textos cortados>}: 200 {ok}
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { isAbsolute, resolve } from 'node:path';
+import { isAbsolute, resolve, sep } from 'node:path';
 import type { AccountEntry } from '../accounts/service';
 import { HttpError, readJson, sendJson } from '../http/app';
 import { errMsg, log } from '../log';
+import { normalizeCwd } from '../model/rooms';
 import type { CodexLive } from '../sources/codex/live';
 import { tr } from '../../shared/i18n';
 
 type Rec = Record<string, unknown>;
+
+/** Compara caminhos do host mesmo quando o servidor roda no Linux e o hook no Windows. */
+function accountPathKey(path: string): string | undefined {
+  if (/^[a-zA-Z]:[\\/]/.test(path) || /^(?:\\\\|\/\/)[^\\/]+[\\/]+[^\\/]+/.test(path)) return normalizeCwd(path);
+  return isAbsolute(path) ? resolve(path).split(sep).join('/') : undefined;
+}
 
 export interface CodexHookEvent {
   /** Conta calculada pelo hook (basename do CODEX_HOME). */
@@ -52,9 +59,9 @@ export function parseCodexEvent(raw: unknown): CodexHookEvent {
  * ou pelo lido por este processo); senão a que ele calculou (o basename não sabe dos ids desambiguados, ex. ".codex~2").
  */
 export function codexAccountOf(entries: readonly AccountEntry[], account: string | undefined, codexHome: string | undefined): string | undefined {
-  if (codexHome && isAbsolute(codexHome)) {
-    const abs = resolve(codexHome);
-    const e = entries.find((x) => resolve(x.detected.configDir) === abs || resolve(x.dir) === abs);
+  const key = codexHome ? accountPathKey(codexHome) : undefined;
+  if (key) {
+    const e = entries.find((x) => accountPathKey(x.detected.configDir) === key || accountPathKey(x.dir) === key);
     if (e) return e.id;
   }
   return account;

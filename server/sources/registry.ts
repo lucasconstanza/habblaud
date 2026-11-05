@@ -111,8 +111,6 @@ export interface RegistryPoll {
 }
 
 interface Cached {
-  mtimeMs: number;
-  size: number;
   entry: RegistryEntry | undefined;
 }
 
@@ -144,23 +142,20 @@ export class RegistryReader {
       if (!name.endsWith('.json')) continue;
       const file = join(this.sessionsDir, name);
       seen.add(file);
-      let st;
       try {
-        st = statSync(file);
+        if (!statSync(file).isFile()) continue;
       } catch {
         continue;
       }
       let cached = this.cache.get(file);
-      if (!cached || cached.mtimeMs !== st.mtimeMs || cached.size !== st.size) {
-        let entry: RegistryEntry | undefined;
-        try {
-          entry = parseRegistryEntry(readFileSync(file, 'utf8'));
-        } catch {
-          entry = undefined;
-        }
-        if (entry) cached = { mtimeMs: st.mtimeMs, size: st.size, entry };
-        // JSON inválido (arquivo sendo gravado): mantém a última versão boa e tenta de novo no próximo ciclo.
-        else cached = cached ? { ...cached } : { mtimeMs: 0, size: -1, entry: undefined };
+      let entry: RegistryEntry | undefined;
+      try {
+        entry = parseRegistryEntry(readFileSync(file, 'utf8'));
+      } catch { /* arquivo em gravação */ }
+      // mtime e tamanho podem coincidir após duas gravações rápidas (busy -> idle): reler em cada poll.
+      // JSON inválido mantém a última versão boa até a próxima leitura.
+      if (entry || !cached) {
+        cached = { entry };
         this.cache.set(file, cached);
       }
       const e = cached.entry;

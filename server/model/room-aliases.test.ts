@@ -20,6 +20,7 @@ describe('RoomAliases', () => {
       const b = new RoomAliases(file);
       b.load();
       expect(b.get('c:/repos/dash')).toBe('Painel do Dash');
+      expect(b.get('C:/REPOS/./DASH/')).toBe('Painel do Dash');
       b.setDefault(ASSETS, 'Arquiteto');
       expect(b.set(ASSETS, '')).toBe('Arquiteto');
       expect(b.get('/outro')).toBeUndefined();

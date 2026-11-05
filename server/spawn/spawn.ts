@@ -9,7 +9,8 @@
 // - Docker: o auxiliar do host (scripts/codex-bridge.ts, npm run codex:bridge) busca os pedidos em
 //   POST /api/host/spawn/poll, confere a pasta, roda e confirma em POST /api/host/spawn/ack.
 // Anexos (spawn/attachments.ts): quem roda grava os arquivos em ~/.habblaud/attachments/ e põe os caminhos no fim
-// do pedido. Sem shell (execFile), com prazo, e o pedido vai depois de `--` (nunca vira opção nem subcomando).
+// do pedido. A CLI roda sem shell (execFile), com prazo, e o pedido vai depois de `--` (nunca vira opção nem subcomando).
+// Só a abertura do app no Windows usa `cmd /c start`, com a URL isolada em variável de ambiente.
 // Node puro e sem dependências: também é importado pelo auxiliar do host (via tsx).
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -144,12 +145,20 @@ export function folderProblem(folder: string, stat: (p: string) => { isDirectory
   }
 }
 
-/** `open`/`xdg-open`/`start` sem shell. */
+/** `open`/`xdg-open`/`start`; no Windows, a URL vai por variável para o `cmd` não separar seus `&`. */
+export function openerCommand(platform: NodeJS.Platform, url: string): { bin: string; args: string[]; env?: NodeJS.ProcessEnv; windowsVerbatimArguments?: boolean } {
+  if (platform === 'win32') {
+    // A URL contém `&` e `%`; passá-la como argumento do cmd faz o shell interpretá-la.
+    return { bin: 'cmd.exe', args: ['/d', '/s', '/c', 'start "" "%HABBLAUD_OPEN_URL%"'], env: { ...process.env, HABBLAUD_OPEN_URL: url }, windowsVerbatimArguments: true };
+  }
+  return { bin: platform === 'darwin' ? 'open' : 'xdg-open', args: [url] };
+}
+
 export function createOpener(platform: NodeJS.Platform = process.platform, timeoutMs = OPEN_TIMEOUT_MS): Opener {
-  const [bin, pre] = platform === 'darwin' ? ['open', []] : platform === 'win32' ? ['cmd', ['/c', 'start', '""']] : ['xdg-open', []];
   return (url) =>
     new Promise((ok) => {
-      execFile(bin, [...pre, url], { timeout: timeoutMs, windowsHide: true, encoding: 'utf8' }, (err, _out, stderr) => {
+      const { bin, args, env, windowsVerbatimArguments } = openerCommand(platform, url);
+      execFile(bin, args, { timeout: timeoutMs, windowsHide: true, windowsVerbatimArguments, encoding: 'utf8', env }, (err, _out, stderr) => {
         if (!err) return ok({ ok: true });
         const line = (stderr || err.message || '').split('\n').find((l) => l.trim()) ?? tr('falhou');
         ok({ ok: false, error: `${bin}: ${line.trim()}`.slice(0, ERROR_MAX) });

@@ -30,12 +30,18 @@ O Habblaud tem interface em português, inglês, espanhol e francês. O portugu�
   `shared/locales/` (`en.ts`, `es.ts`, `fr.ts`) ou deixe sem: um texto sem tradução aparece em português.
 - `npm run i18n:check` lista os textos sem tradução e as traduções que sobraram.
 
+As integrações Google são provedores distintos: `antigravity` observa o Antigravity CLI autenticado, enquanto
+`gemini` preserva sessões legadas da Gemini CLI com API key ou licença empresarial. Dados de cota só entram na
+interface quando a ferramenta informa uma fração e horário de leitura verificáveis; não reutilize as janelas de
+5 horas/semana do Claude Code para outros provedores.
+
 ## Verificar uma mudança
 
 Antes de abrir o pull request, rode:
 
 ```sh
 npm run typecheck
+npm run i18n:check
 npm test
 npm run build
 ```

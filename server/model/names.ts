@@ -7,6 +7,7 @@ import { parseAppearanceParts, parseCharacterName, parseSeed, type AppearancePar
 import { pickName, type PersonName } from '../../shared/names';
 import { errMsg, log } from '../log';
 import { tr } from '../../shared/i18n';
+import { normalizeCwd } from './rooms';
 
 interface StoredName {
   name: string;
@@ -33,6 +34,8 @@ interface NamesFile {
   version: 1;
   names: Record<string, StoredName>;
   rooms?: Record<string, StoredCharacter>;
+  /** Alternativas de chaves antigas que apontavam para a mesma pasta; exigem escolha manual para recuperar. */
+  roomConflicts?: { roomId: string; character: StoredCharacter }[];
 }
 
 /** Entrada de `rooms` lida do arquivo, ou null se algo estiver fora do formato. */
@@ -60,6 +63,7 @@ const MAX_AGE_MS = 60 * 24 * 3_600_000;
 export class NameStore {
   private names = new Map<string, StoredName>();
   private rooms = new Map<string, StoredCharacter>();
+  private roomConflicts: NonNullable<NamesFile['roomConflicts']> = [];
   private timer: ReturnType<typeof setTimeout> | null = null;
   private readonly now: () => number;
 
@@ -81,10 +85,39 @@ export class NameStore {
         }
       }
       const rooms = j.rooms && typeof j.rooms === 'object' && !Array.isArray(j.rooms) ? j.rooms : {};
+      const grouped = new Map<string, { roomId: string; character: StoredCharacter }[]>();
+      let migrated = false;
       for (const [roomId, v] of Object.entries(rooms)) {
         const c = parseStoredCharacter(v);
-        if (c) this.rooms.set(roomId, c);
+        if (!c) continue;
+        const canonical = normalizeCwd(roomId);
+        if (canonical !== roomId) migrated = true;
+        const candidates = grouped.get(canonical) ?? [];
+        candidates.push({ roomId, character: c });
+        grouped.set(canonical, candidates);
       }
+      const priorConflicts = Array.isArray(j.roomConflicts) ? j.roomConflicts : [];
+      for (const entry of priorConflicts) {
+        if (!entry || typeof entry.roomId !== 'string') continue;
+        const character = parseStoredCharacter(entry.character);
+        if (character) this.roomConflicts.push({ roomId: entry.roomId, character });
+      }
+      let collisions = 0;
+      for (const [canonical, candidates] of grouped) {
+        // Mais recente vence; empate favorece a chave já canônica, depois a ordem lexical estável.
+        candidates.sort((a, b) =>
+          b.character.at - a.character.at ||
+          Number(b.roomId === canonical) - Number(a.roomId === canonical) ||
+          (a.roomId < b.roomId ? -1 : a.roomId > b.roomId ? 1 : 0),
+        );
+        this.rooms.set(canonical, candidates[0].character);
+        for (const alternative of candidates.slice(1)) {
+          this.roomConflicts.push(alternative);
+          collisions++;
+        }
+      }
+      if (collisions) log.warn(tr('Conflito na migração de personagens: {0} alternativa(s) preservada(s) em roomConflicts de names.json.', [collisions]));
+      if (migrated || collisions) this.scheduleFlush();
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') log.warn(tr('names.json ilegível ({0}); começando do zero.', [errMsg(err)]));
     }
@@ -171,6 +204,7 @@ export class NameStore {
     this.rooms = new Map(rooms);
     const data: NamesFile = { version: 1, names: Object.fromEntries(kept) };
     if (rooms.length) data.rooms = Object.fromEntries(rooms);
+    if (this.roomConflicts.length) data.roomConflicts = this.roomConflicts;
     try {
       mkdirSync(dirname(this.file), { recursive: true });
       const tmp = `${this.file}.${process.pid}.tmp`;

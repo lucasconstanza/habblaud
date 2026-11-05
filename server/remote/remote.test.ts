@@ -21,6 +21,23 @@ setQuiet(true);
 const HAS_OPENSSL = spawnSync('openssl', ['version']).status === 0;
 const quiet = { info: () => {}, warn: () => {}, error: () => {} };
 
+function privateAcl(file: string): boolean {
+  const script = [
+    "$ErrorActionPreference = 'Stop'",
+    '$target = $env:HABBLAUD_ACL_TARGET',
+    '$acl = if ([System.IO.Directory]::Exists($target)) { [System.IO.Directory]::GetAccessControl($target) } else { [System.IO.File]::GetAccessControl($target) }',
+    '$sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value',
+    '$rules = $acl.GetAccessRules($true, $false, [System.Security.Principal.SecurityIdentifier])',
+    '$ids = @($rules | ForEach-Object { $_.IdentityReference.Value })',
+    'Write-Output ($acl.AreAccessRulesProtected -and $ids.Count -eq 1 -and $ids[0] -eq $sid)',
+  ].join('; ');
+  const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
+    encoding: 'utf8', env: { ...process.env, HABBLAUD_ACL_TARGET: file }, windowsHide: true,
+  });
+  expect(result.status, result.stderr).toBe(0);
+  return result.stdout.trim() === 'True';
+}
+
 describe('senha (scrypt)', () => {
   it('gera hash sem "$" (o Compose interpola), confere a certa e recusa a errada', async () => {
     const text = await hashPassword('uma senha boa', 10);
@@ -128,8 +145,16 @@ describe.skipIf(!HAS_OPENSSL)('certificados (openssl)', () => {
     const paths = tlsPaths(join(tmp.dir, 'remote-tls'));
     const r = ensureServerCert(paths, targets);
     expect(r).toMatchObject({ createdCa: true, issued: true });
-    expect(statSync(paths.caKey).mode & 0o777).toBe(0o600);
-    expect(statSync(paths.base).mode & 0o777).toBe(0o700);
+    if (process.platform === 'win32') {
+      expect(privateAcl(paths.caKey)).toBe(true);
+      expect(privateAcl(paths.serverKey)).toBe(true);
+      expect(privateAcl(paths.base)).toBe(true);
+      expect(privateAcl(paths.caDir)).toBe(true);
+      expect(privateAcl(paths.serverDir)).toBe(true);
+    } else {
+      expect(statSync(paths.caKey).mode & 0o777).toBe(0o600);
+      expect(statSync(paths.base).mode & 0o777).toBe(0o700);
+    }
     const cert = new X509Certificate(readFileSync(paths.serverCert));
     const ca = new X509Certificate(readFileSync(paths.caCert));
     expect(cert.verify(ca.publicKey)).toBe(true);

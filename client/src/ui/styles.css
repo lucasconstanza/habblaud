@@ -1023,7 +1023,7 @@
   color: #ffcf8a;
 }
 
-/* Codex com números recentes: a idade fica à mostra, discreta (os números só se renovam com sessão rodando). */
+/* Leitura recente: idade sempre visível e discreta para Codex e Antigravity. */
 .ui-usage-card__state.is-fresh {
   background: rgba(255, 255, 255, 0.06);
   color: var(--ui-muted);
@@ -1283,11 +1283,12 @@
 }
 
 .ui-usage-card:hover .ui-usage-tip,
-.ui-usage-card:focus-visible .ui-usage-tip {
+.ui-usage-card:focus-within .ui-usage-tip {
   opacity: 1;
   visibility: visible;
   transform: none;
   transition-delay: 0.12s, 0.12s, 0s;
+  pointer-events: auto;
 }
 
 .ui-usage-tip__title {
@@ -1306,6 +1307,22 @@
   font-size: 11.5px;
   color: #c9d1e2;
 }
+
+.ui-usage-tip__refresh {
+  margin-top: 10px;
+  padding: 5px 9px;
+  border: 1px solid var(--ui-line-strong);
+  border-radius: 5px;
+  background: var(--ui-bg-solid);
+  color: var(--ui-text);
+  font: 650 11.5px/1.3 var(--font-ui);
+  cursor: pointer;
+}
+
+.ui-usage-tip__refresh:hover:not(:disabled) { border-color: var(--acc); }
+.ui-usage-tip__refresh:disabled { opacity: 0.6; cursor: wait; }
+.ui-usage-tip__refresh-status { margin-top: 5px; font-size: 11.5px; color: var(--ui-muted); }
+.ui-usage-tip__refresh-status:empty { display: none; }
 
 .ui-usage-tip__setup {
   margin-top: 10px;

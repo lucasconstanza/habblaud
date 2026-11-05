@@ -37,6 +37,11 @@ describe('salas', () => {
   it('normaliza o cwd', () => {
     expect(normalizeCwd('/a//b/')).toBe('/a/b');
     expect(normalizeCwd('/')).toBe('/');
+    expect(normalizeCwd('/A/b')).toBe('/A/b');
+    expect(normalizeCwd('C:\\Users\\Lucas\\Projeto\\')).toBe('c:/users/lucas/projeto');
+    expect(normalizeCwd('c:/USERS/LUCAS/./projeto/')).toBe('c:/users/lucas/projeto');
+    expect(normalizeCwd('\\\\SERVER\\Share\\Projeto\\')).toBe('//server/share/projeto');
+    expect(normalizeCwd('//server/share/projeto/')).toBe('//server/share/projeto');
   });
 
   it('desambigua basenames repetidos com o diretório pai', () => {
@@ -80,6 +85,61 @@ describe('NameStore', () => {
 describe('NameStore: personagem de cada sala', () => {
   const NOW = 1_700_000_000_000;
   const DAY = 86_400_000;
+
+  it('recupera personagem salvo com chave Windows antiga mesmo sem chave canônica no arquivo', () => {
+    const tmp = tempDir();
+    try {
+      const file = join(tmp.dir, 'names.json');
+      writeFileSync(file, JSON.stringify({
+        version: 1,
+        names: {},
+        rooms: { 'C:\\Projetos\\App': { name: 'Ana', look: 'f', seed: 7, at: NOW } },
+      }));
+      const store = new NameStore(file, { now: () => NOW });
+      store.load();
+      expect(store.character('c:/projetos/app')?.name).toBe('Ana');
+      const { office, now } = makeOffice(store);
+      office.addMain({ id: 'claude:1', account: 'acc', sessionId: 's1', cwd: 'c:/PROJETOS/APP/', role: 'x', startedAt: now(), status: 'working' });
+      expect(office.get('claude:1')).toMatchObject({ name: 'Ana', custom: true, roomId: 'c:/projetos/app' });
+      store.flush();
+      expect(Object.keys(JSON.parse(readFileSync(file, 'utf8')).rooms)).toEqual(['c:/projetos/app']);
+    } finally {
+      tmp.cleanup();
+    }
+  });
+
+  it('migra chaves Windows equivalentes e preserva personagens concorrentes sem repetir conflitos no reinício', () => {
+    const tmp = tempDir();
+    try {
+      const file = join(tmp.dir, 'names.json');
+      const old = 'C:\\Projetos\\App';
+      const canonical = 'c:/projetos/app';
+      writeFileSync(file, JSON.stringify({
+        version: 1,
+        names: { sess: { name: 'Sessão', look: 'f', at: NOW } },
+        rooms: {
+          [old]: { name: 'Antiga', look: 'f', seed: 1, at: NOW - 100, owner: 's1' },
+          [canonical]: { name: 'Atual', look: 'm', seed: 2, at: NOW, owner: 's2' },
+        },
+      }));
+      const first = new NameStore(file, { now: () => NOW });
+      first.load();
+      expect(first.character(canonical)).toMatchObject({ name: 'Atual', seed: 2, owner: 's2' });
+      expect(first.character(old)).toBeUndefined();
+      expect(first.get('sess')?.name).toBe('Sessão');
+      first.flush();
+      const saved = JSON.parse(readFileSync(file, 'utf8'));
+      expect(Object.keys(saved.rooms)).toEqual([canonical]);
+      expect(saved.roomConflicts).toEqual([{ roomId: old, character: { name: 'Antiga', look: 'f', seed: 1, at: NOW - 100, owner: 's1' } }]);
+
+      const second = new NameStore(file, { now: () => NOW });
+      second.load();
+      second.flush();
+      expect(JSON.parse(readFileSync(file, 'utf8')).roomConflicts).toEqual(saved.roomConflicts);
+    } finally {
+      tmp.cleanup();
+    }
+  });
 
   it('grava, recarrega, devolve cópias e reservedNames deixa a própria sala de fora', () => {
     const tmp = tempDir();
@@ -217,6 +277,19 @@ function makeOffice(names = new NameStore(null)) {
 const act = (id: string, at: number, kind: Activity['kind'] = 'read'): Activity => ({ id, at, kind, icon: '📖', text: 'Lendo x' });
 
 describe('Office', () => {
+  it('Claude, Codex e Gemini no mesmo projeto Windows compartilham sala e mantêm o caminho de abertura', () => {
+    const { office, now } = makeOffice();
+    const path = 'C:\\Users\\Lucas\\Projetos\\App';
+    office.addMain({ id: 'claude:1', provider: 'claude', account: 'acc', sessionId: 'c1', cwd: path, role: 'x', startedAt: now(), status: 'working' });
+    office.addMain({ id: 'codex:1', provider: 'codex', account: 'acc', sessionId: 'x1', cwd: 'c:/users/lucas/projetos/app/', role: 'x', startedAt: now(), status: 'working' });
+    office.addMain({ id: 'gemini:1', provider: 'gemini', account: 'acc', sessionId: 'g1', cwd: 'C:/USERS/LUCAS/PROJETOS/./APP', role: 'x', startedAt: now(), status: 'working' });
+    const snapshot = office.commit().snapshot;
+    expect(snapshot.rooms).toHaveLength(1);
+    expect(snapshot.rooms[0]).toMatchObject({ id: 'c:/users/lucas/projetos/app', path });
+    expect(office.roomPath(snapshot.rooms[0].id)).toBe(path);
+    expect(new Set(snapshot.agents.map((a) => a.roomId))).toEqual(new Set([snapshot.rooms[0].id]));
+  });
+
   it('avisos com dedupe de 10 s e feed em lote', () => {
     const { office, advance, now } = makeOffice();
     office.addMain({ id: 'acc:1', account: 'acc', sessionId: 's1', cwd: '/p/loja/', role: 'Agente principal', startedAt: now(), status: 'working' });

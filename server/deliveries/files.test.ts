@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { win32 } from 'node:path';
 import { checkFile, DELIVERY_FILE_MAX_BYTES, fileType, insideKnownFolder, pathProblem } from './files';
 
 describe('arquivos das entregas', () => {
@@ -7,7 +8,11 @@ describe('arquivos das entregas', () => {
     expect(fileType('/a/b.pdf')?.kind).toBe('pdf');
     expect(fileType('/a/b.json')).toBeUndefined();
     expect(pathProblem('/Users/a/p/relatorio.pdf')).toBeUndefined();
+    expect(pathProblem('C:\\Users\\ana\\projeto\\relatorio.pdf')).toBeUndefined();
     for (const bad of ['/Users/a/.ssh/x.png', '/Users/a/p/.env.png', '/Users/a/p/secret-plan.pdf', '/Users/a/p/server.key', '/Users/a/.aws/c.txt', '/Users/a/.habblaud/remote-tls/ca.pdf', 'rel.png', '/a/../b.png', '/a/b.sh', '/a/id_ed25519']) {
+      expect(pathProblem(bad), bad).toBeDefined();
+    }
+    for (const bad of ['C:\\Users\\ana\\.ssh\\x.png', 'C:\\Users\\ana\\.habblaud\\remote-tls\\ca.pdf', 'C:\\Users\\ana\\projeto\\.env.png', 'C:\\Users\\ana\\projeto\\..\\x.png', 'C:relativo.png', '\\\\server\\share\\x.png']) {
       expect(pathProblem(bad), bad).toBeDefined();
     }
   });
@@ -32,5 +37,12 @@ describe('arquivos das entregas', () => {
     expect(insideKnownFolder('/Users/ana/Documents/extrato.pdf', opts)).toBe(false);
     expect(insideKnownFolder('/Users/ana/lojas/a.png', opts)).toBe(false);
     expect(insideKnownFolder('/tmpx/a.png', opts)).toBe(false);
+    const windowsRoot = 'C:\\Users\\ana\\loja';
+    const windowsAccount = 'C:\\Users\\ana\\.claude';
+    const windowsKnown = win32.join(windowsAccount, 'projects', windowsRoot.replace(/[^a-zA-Z0-9]/g, '-'));
+    const windowsOpts = { accountDirs: [windowsAccount], roots: ['C:\\Users\\ana\\AppData\\Local\\Temp'], exists: (p: string) => p === windowsKnown };
+    expect(insideKnownFolder('C:\\Users\\ana\\loja\\docs\\print.png', windowsOpts)).toBe(true);
+    expect(insideKnownFolder('c:\\users\\ANA\\appdata\\local\\temp\\foto.png', windowsOpts)).toBe(true);
+    expect(insideKnownFolder('C:\\Users\\ana\\lojas\\print.png', windowsOpts)).toBe(false);
   });
 });

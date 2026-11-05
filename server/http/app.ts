@@ -3,7 +3,12 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { NAME_MAX, parseAppearanceParts, parseCharacterName, parseSeed } from '../../shared/appearance';
 import type { AccessInfo, AgentInfo, ModSummary, OfficeSnapshot, SourceInfo, UpdateStatus } from '../../shared/types';
 import type { AccountsService } from '../accounts/service';
+import type { ClaudeUsageRefresher } from '../accounts/refresh';
 import { handleCodexEvent } from '../codex/http';
+import { handleGeminiEvent } from '../gemini/http';
+import type { GeminiSource } from '../sources/gemini/source';
+import { handleAntigravityEvent } from '../antigravity/http';
+import type { AntigravitySource } from '../sources/antigravity/source';
 import type { DayStatsService } from '../history/daystats';
 import type { Office } from '../model/office';
 import type { CodexLive } from '../sources/codex/live';
@@ -27,9 +32,13 @@ export interface ApiDeps {
   office: Office;
   hub: Hub;
   accounts: AccountsService;
+  /** Consulta /usage pela CLI Claude local, somente sob demanda e fora do Docker. */
+  usageRefresh?: ClaudeUsageRefresher;
   sources: () => SourceInfo[];
   version: string;
   inDocker: boolean;
+  /** Porta publicada só em loopback no host, independente de HABBLAUD_TERMINAL. */
+  privateBind?: boolean;
   /** Terminal ligado (ServerConfig.terminal: só com bind local). */
   terminal?: boolean;
   /** Streams do terminal; sem eles o recurso fica desligado mesmo com `terminal`. */
@@ -63,6 +72,9 @@ export interface ApiDeps {
    * não dependem da trava do terminal).
    */
   codexLive?: CodexLive;
+  /** Eventos locais dos hooks do Gemini CLI, sem conteúdo da conversa. */
+  geminiLive?: GeminiSource;
+  antigravityLive?: AntigravitySource;
   /** Novo agente pelo escritório (/api/spawn e, para o auxiliar do host, /api/host/spawn/*; server/spawn/spawn.ts). */
   spawn?: SpawnService;
   /** Pastas sugeridas no "Novo agente" (GET /api/spawn/folders; spawn/folders.ts): projetos recentes. */
@@ -112,6 +124,18 @@ function isLoopbackAddress(addr: string | undefined): boolean {
   return a === '::1' || /^127\./.test(a);
 }
 
+/** Para iniciar a CLI, Origin presente deve ser exatamente a origem desta página, incluindo a porta. */
+function sameOrigin(req: IncomingMessage): boolean {
+  const origin = req.headers.origin;
+  if (origin === undefined) return true;
+  try {
+    const url = new URL(origin);
+    return (url.protocol === 'http:' || url.protocol === 'https:') && url.host.toLowerCase() === req.headers.host?.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
 /** Rotas das mensagens pelo escritório (server/messages/http.ts); /api/mod/summary fica de fora (sem trava). */
 /**
  * Rotas dos hooks, dos plugins e do auxiliar do host: registrar e esperar pedidos de permissão, buscar as mensagens de
@@ -125,7 +149,10 @@ function isLocalOnlyPath(path: string): boolean {
     path === '/api/mod/inbox' ||
     path === '/api/mod/inbox/ack' ||
     path.startsWith('/api/codex/') ||
-    path.startsWith('/api/host/')
+    path === '/api/gemini/events' ||
+    path.startsWith('/api/antigravity/') ||
+    path.startsWith('/api/host/') ||
+    path === '/api/usage/refresh'
   );
 }
 
@@ -271,6 +298,10 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
    */
   const trusted = (req: IncomingMessage, feature?: RemoteFeature): boolean =>
     isRemote(req) ? !!feature && !!deps.remote?.allows(feature) : isLoopbackHost(req.headers.host);
+  /** O Host é forjável na LAN: hooks e World exigem porta privada ou par de loopback. */
+  const localProcess = (req: IncomingMessage): boolean =>
+    !isRemote(req) && isLoopbackHost(req.headers.host) &&
+    (deps.inDocker ? !!deps.privateBind : isLoopbackAddress(req.socket.remoteAddress));
   const denied = (req: IncomingMessage, localMessage: string): string =>
     isRemote(req) ? tr('não liberado no acesso remoto (veja HABBLAUD_REMOTE_ALLOW)') : localMessage;
 
@@ -344,7 +375,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       if (!deps.world) {
         req.resume();
         sendJson(res, 404, { error: tr('rota desconhecida') });
-      } else if (isRemote(req) || !isLoopbackHost(req.headers.host)) {
+      } else if (!localProcess(req)) {
         req.resume();
         sendJson(res, 403, { error: { code: 'local_only', message: tr('o Habblaud World só é usado pelo próprio computador (http://localhost)') } });
       } else deps.world(req, res, url);
@@ -358,6 +389,32 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
     if (path === '/api/snapshot') {
       if (!isRead) methodNotAllowed(res, 'GET');
       else sendJson(res, 200, hub.current());
+      return true;
+    }
+    if (path === '/api/usage/refresh') {
+      if (method !== 'POST') methodNotAllowed(res, 'POST');
+      else if (!localProcess(req) || !sameOrigin(req)) {
+        req.resume();
+        sendJson(res, 403, { error: tr('Atualização de uso disponível só neste computador por localhost.') });
+      } else if (!isJsonContentType(req.headers['content-type'])) {
+        req.resume();
+        sendJson(res, 415, { error: tr('Envie o corpo como JSON (Content-Type: application/json).') });
+      } else if (!deps.usageRefresh) {
+        req.resume();
+        sendJson(res, 503, { error: tr('Atualização de uso indisponível: execute o Habblaud localmente com o Claude Code instalado (fora do Docker).') });
+      } else {
+        readJson(req).then(async (body) => {
+          const id = (body as { accountId?: unknown } | null)?.accountId;
+          if (typeof id !== 'string' || !id || id.length > 200) throw new HttpError(400, tr('ID de conta inválido.'));
+          const result = await deps.usageRefresh!.refresh(id);
+          if (result === 'unknown-account') return sendJson(res, 404, { error: tr('Conta Claude não encontrada.') });
+          if (result === 'busy') return sendJson(res, 409, { error: tr('O uso desta conta já está sendo atualizado.') });
+          if (result === 'rate-limited') return sendJson(res, 429, { error: tr('Aguarde um minuto antes de atualizar esta conta novamente.') });
+          if (result === 'cli-failed') return sendJson(res, 502, { error: tr('O Claude Code não concluiu /usage. Confira a autenticação da conta na CLI.') });
+          if (result === 'no-new-usage') return sendJson(res, 502, { error: tr('O Claude Code respondeu, mas não gravou novos números para esta conta.') });
+          sendJson(res, 200, { ok: true, snapshot: hub.current() });
+        }).catch((err) => fail(res, err));
+      }
       return true;
     }
     if (path === '/api/health') {
@@ -484,9 +541,22 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       // sempre conecta pelo loopback (o Host sozinho um cliente da rede consegue imitar); no Docker ele chega pela porta
       // publicada, com o endereço do gateway.
       if (method !== 'POST') methodNotAllowed(res, 'POST');
-      else if (!trusted(req) || (!deps.inDocker && !isLoopbackAddress(req.socket.remoteAddress))) {
+      else if (!localProcess(req)) {
         sendJson(res, 403, { error: denied(req, tr('eventos do Codex só são aceitos pelo próprio computador (http://localhost ou http://127.0.0.1)')) });
       } else handleCodexEvent(req, res, { live: deps.codexLive, entries: () => accounts.entriesOf('codex') }).catch((err) => fail(res, err));
+      return true;
+    }
+    if (path === '/api/gemini/events') {
+      if (method !== 'POST') methodNotAllowed(res, 'POST');
+      else if (!localProcess(req)) {
+        sendJson(res, 403, { error: denied(req, tr('eventos do Gemini CLI só são aceitos pelo próprio computador')) });
+      } else handleGeminiEvent(req, res, deps.geminiLive).catch((err) => fail(res, err));
+      return true;
+    }
+    if (path === '/api/antigravity/events' || path === '/api/antigravity/statusline') {
+      if (method !== 'POST') methodNotAllowed(res, 'POST');
+      else if (!localProcess(req)) sendJson(res, 403, { error: denied(req, tr('eventos do Antigravity CLI só são aceitos pelo próprio computador')) });
+      else handleAntigravityEvent(req, res, deps.antigravityLive, path.endsWith('/events') ? 'hook' : 'statusline').catch((err) => fail(res, err));
       return true;
     }
     if (path === '/api/spawn' || path.startsWith('/api/spawn/')) {
@@ -577,7 +647,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       const files = deps.files;
       if (method !== 'POST') methodNotAllowed(res, 'POST');
       else if (!files) sendJson(res, 403, { error: tr('arquivos desligados') });
-      else if (!trusted(req) || (!deps.inDocker && !isLoopbackAddress(req.socket.remoteAddress))) {
+      else if (!localProcess(req)) {
         sendJson(res, 403, { error: denied(req, tr('só o auxiliar do próprio computador')) });
       } else if (path === '/api/host/files/poll') {
         req.resume();
@@ -597,7 +667,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       const dictation = deps.dictation;
       if (method !== 'POST') methodNotAllowed(res, 'POST');
       else if (!dictation) sendJson(res, 403, { error: tr('ditado desligado') });
-      else if (!trusted(req) || (!deps.inDocker && !isLoopbackAddress(req.socket.remoteAddress))) {
+      else if (!localProcess(req)) {
         sendJson(res, 403, { error: denied(req, tr('só o auxiliar do próprio computador')) });
       } else if (path === '/api/host/dictation/poll') {
         req.resume();
@@ -617,7 +687,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       const spawn = deps.spawn;
       if (method !== 'POST') methodNotAllowed(res, 'POST');
       else if (!spawn) sendJson(res, 403, { error: tr('novo agente pelo escritório desligado') });
-      else if (!trusted(req) || (!deps.inDocker && !isLoopbackAddress(req.socket.remoteAddress))) {
+      else if (!localProcess(req)) {
         sendJson(res, 403, { error: denied(req, tr('só o auxiliar do próprio computador')) });
       } else if (path === '/api/host/spawn/poll') {
         req.resume();
@@ -686,7 +756,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
     if (path === '/api/demo') {
       // Liga o modo demonstração para todo mundo: só pelo computador (o celular com login só vê o que foi liberado).
       if (method !== 'POST') methodNotAllowed(res, 'POST');
-      else if (isRemote(req)) sendJson(res, 403, { error: tr('não liberado no acesso remoto (veja HABBLAUD_REMOTE_ALLOW)') });
+      else if (!localProcess(req)) sendJson(res, 403, { error: denied(req, tr('só o próprio computador pode alterar o modo demonstração')) });
       else handleDemo(req, res).catch((err) => fail(res, err));
       return true;
     }

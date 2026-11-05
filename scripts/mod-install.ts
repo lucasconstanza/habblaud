@@ -34,6 +34,7 @@
 // <conta>/plugins/installed_plugins.json e known_marketplaces.json são internos do Claude Code e podem mudar de
 // formato (o primeiro já está na versão 2).
 import { spawnSync } from 'node:child_process';
+import { runnableClaudeBin } from '../server/claude-bin';
 import { existsSync, mkdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -98,7 +99,9 @@ export type ClaudeRunner = (args: string[], env: NodeJS.ProcessEnv) => ClaudeRes
 /** O runner de verdade. stdin fechado: nada fica esperando uma resposta no terminal. */
 export function makeClaudeRunner(cmd = 'claude'): ClaudeRunner {
   return (args, env) => {
-    const r = spawnSync(cmd, args, { env, encoding: 'utf8', timeout: CLI_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'] });
+    // O npm instala um shim .cmd no Windows; spawnSync sem shell precisa do executável real.
+    const executable = process.platform === 'win32' ? (runnableClaudeBin({ ...env, HABBLAUD_CLAUDE_BIN: cmd }) ?? cmd) : cmd;
+    const r = spawnSync(executable, args, { env, encoding: 'utf8', timeout: CLI_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'] });
     if (r.error) {
       const code = (r.error as NodeJS.ErrnoException).code;
       const error = code === 'ENOENT' ? tr('o comando "{0}" não foi encontrado no PATH', [cmd]) : code === 'ETIMEDOUT' ? tr('"{0} {1}" não terminou em {2} s', [cmd, args.join(' '), CLI_TIMEOUT_MS / 1000]) : r.error.message;

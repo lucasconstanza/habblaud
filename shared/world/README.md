@@ -15,7 +15,7 @@ está em [`docs/world/privacidade.md`](../../docs/world/privacidade.md).
 ```
 navegador ──/api/world/*──▶ servidor local do Habblaud ──HTTPS /v1/*──▶ servidor do Habblaud World
   (só a porta local,           (server/world/: guarda o token     (repositório privado; valida tudo
-   com Host local)              em world.json, modo 600)            de novo e decide)
+   com Host local)              em world.json, acesso restrito)      de novo e decide)
 ```
 
 - O navegador **nunca** fala direto com o servidor do mundo e **nunca** vê o token do dispositivo: quem guarda e usa o

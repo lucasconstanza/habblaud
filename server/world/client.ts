@@ -316,12 +316,31 @@ export class WorldClient {
         await res.body?.cancel().catch(() => undefined);
         return fail(502, CLIENT_ERROR.badResponse);
       }
-      text = await res.text();
+      if (!res.body) text = '';
+      else {
+        const reader = res.body.getReader();
+        const chunks: Uint8Array[] = [];
+        let bytes = 0;
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            bytes += value.byteLength;
+            if (bytes > max) {
+              await reader.cancel().catch(() => undefined);
+              return fail(502, CLIENT_ERROR.badResponse);
+            }
+            chunks.push(value);
+          }
+        } finally {
+          reader.releaseLock();
+        }
+        text = Buffer.concat(chunks, bytes).toString('utf8');
+      }
     } catch (err) {
       o.signal?.throwIfAborted();
       return (err as Error)?.name === 'TimeoutError' || timeout.aborted ? fail(504, CLIENT_ERROR.timeout) : fail(502, CLIENT_ERROR.unreachable);
     }
-    if (text.length > max) return fail(502, CLIENT_ERROR.badResponse);
     let raw: unknown;
     if (text.trim()) {
       try {

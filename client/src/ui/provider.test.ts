@@ -8,6 +8,7 @@ import {
   fallbackShort,
   hasCodexPermission,
   isCodex,
+  looksLikeAntigravityId,
   looksLikeCodexId,
   providerOf,
   showsProviderTag,
@@ -31,6 +32,10 @@ describe('ferramenta (Claude Code ou Codex)', () => {
     expect(accountProvider({}, '.codex')).toBe('claude');
     expect(accountProvider(undefined, '.claude', 'codex')).toBe('codex');
     expect(accountProvider(undefined, '.codex')).toBe('codex');
+    expect(accountProvider(undefined, '.gemini')).toBe('gemini');
+    expect(accountProvider(undefined, '.antigravity-cli')).toBe('antigravity');
+    expect(looksLikeAntigravityId('.antigravity-cli')).toBe(true);
+    expect(looksLikeAntigravityId('myantigravity')).toBe(false);
     expect(accountProvider(undefined, 'x')).toBe('claude');
   });
 
@@ -38,6 +43,9 @@ describe('ferramenta (Claude Code ou Codex)', () => {
     expect(fallbackShort('.claude-conta2')).toBe('C');
     expect(fallbackShort('.claude')).toBe('?');
     expect(fallbackShort('.codex')).toBe('X');
+    expect(fallbackShort('.gemini')).toBe('G');
+    expect(fallbackShort('.antigravity-cli')).toBe('A');
+    expect(fallbackShort('.antigravity')).toBe('A');
     expect(fallbackShort('.codex-trabalho')).toBe('T');
     expect(fallbackShort('.codex~2')).toBe('X');
     expect(fallbackShort('demo:.codex')).toBe('X');
@@ -51,6 +59,10 @@ describe('ferramenta (Claude Code ou Codex)', () => {
     expect(showsProviderTag('codex', 'Codex')).toBe(false);
     expect(showsProviderTag('codex', 'Demo Codex')).toBe(false);
     expect(showsProviderTag('claude', 'Conta C')).toBe(false);
+    expect(showsProviderTag('gemini', 'Conta G')).toBe(true);
+    expect(showsProviderTag('gemini', 'Gemini CLI')).toBe(false);
+    expect(showsProviderTag('antigravity', 'Conta Google')).toBe(true);
+    expect(showsProviderTag('antigravity', 'Antigravity CLI')).toBe(false);
   });
 
   it('rótulo do chip: e-mail no Claude Code; ferramenta e plano no Codex', () => {
@@ -58,6 +70,8 @@ describe('ferramenta (Claude Code ou Codex)', () => {
     expect(accountChipLabel({ name: 'Conta X', plan: 'Team', provider: 'codex' }, '.codex', 'codex')).toBe('Conta X · Codex · plano Team');
     expect(accountChipLabel({ name: 'Codex', plan: 'Team', provider: 'codex' }, '.codex', 'codex')).toBe('Codex · plano Team');
     expect(accountChipLabel(undefined, '.codex', 'codex')).toBe('.codex · Codex');
+    expect(accountChipLabel(undefined, '.gemini', 'gemini')).toBe('.gemini · Gemini CLI');
+    expect(accountChipLabel(undefined, '.antigravity-cli', 'antigravity')).toBe('.antigravity-cli · Antigravity CLI');
     expect(accountChipLabel(undefined, '', 'claude')).toBe('Conta desconhecida');
   });
 
@@ -65,9 +79,15 @@ describe('ferramenta (Claude Code ou Codex)', () => {
     const c = { short: 'C' };
     const d = { short: 'D' };
     const x = { short: 'X', provider: 'codex' as const };
+    const g = { short: 'G', provider: 'gemini' as const };
+    const a = { short: 'A', provider: 'antigravity' as const };
     expect(emptyOfficeHint([c, d])).toBe('Abra o Claude Code em qualquer projeto (atalhos c ou d) e veja seu agente chegar.');
     expect(emptyOfficeHint([c, d, x])).toBe('Abra o Claude Code (atalhos c ou d) ou o Codex em qualquer projeto e veja seu agente chegar.');
     expect(emptyOfficeHint([x])).toBe('Abra o Claude Code ou o Codex em qualquer projeto e veja seu agente chegar.');
+    expect(emptyOfficeHint([g])).toBe('Abra o Claude Code ou o Gemini CLI em qualquer projeto e veja seu agente chegar.');
+    expect(emptyOfficeHint([x, g])).toBe('Abra o Claude Code, o Codex ou o Gemini CLI em qualquer projeto e veja seu agente chegar.');
+    expect(emptyOfficeHint([a])).toBe('Abra o Claude Code ou o Antigravity CLI em qualquer projeto e veja seu agente chegar.');
+    expect(emptyOfficeHint([x, a])).toBe('Abra o Claude Code, o Codex ou o Antigravity CLI em qualquer projeto e veja seu agente chegar.');
     expect(emptyOfficeHint([])).toBe('Abra o Claude Code em qualquer projeto e veja seu agente chegar.');
   });
 

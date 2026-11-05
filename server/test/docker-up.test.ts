@@ -1,5 +1,9 @@
 // Funções puras de scripts/docker-up.ts (importar o módulo não sobe nada).
-import { describe, expect, it } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { describe, expect, it, vi } from 'vitest';
+import { tempDir } from './fixtures';
 import type { DetectedAccount } from '../accounts/detect';
 import { legacyEnvWarning } from '../legacy';
 import {
@@ -12,12 +16,15 @@ import {
   envFileKeys,
   hostTimeZone,
   parseArgs,
+  planAntigravityMount,
   planCodexMounts,
+  planGeminiMount,
   planMounts,
   planUp,
   renderOverride,
   sanitizeCachedUsage,
   worldLine,
+  writePrivateOverride,
   yamlString,
 } from '../../scripts/docker-up';
 
@@ -130,6 +137,106 @@ describe('docker-up', () => {
     expect(codexDisabled({ HABBLAUD_CODEX: 'off' })).toBe(true);
     expect(codexDisabled({ HABBLAUD_CODEX: '1' })).toBe(false);
     expect(codexDisabled({})).toBe(false);
+  });
+
+  it('Gemini: monta somente tmp/, sem credenciais; o override liga a conta no container', () => {
+    const tmp = tempDir();
+    try {
+      const dir = join(tmp.dir, '.gemini');
+      mkdirSync(join(dir, 'tmp'), { recursive: true });
+      const gemini = planGeminiMount({ HABBLAUD_GEMINI_DIR: dir }, tmp.dir);
+      expect(gemini?.account.id).toBe('.gemini');
+      expect(slash(gemini!.bind.source)).toBe(slash(join(dir, 'tmp')));
+      expect(gemini?.bind.target).toBe('/gemini/.gemini/tmp');
+      const yml = renderOverride([], new Date(0), undefined, undefined, [], undefined, [], gemini);
+      expect(yml).toContain('HABBLAUD_GEMINI_DIR: "/gemini/.gemini"');
+      expect(yml).toContain('target: "/gemini/.gemini/tmp"\n        read_only: true');
+      expect(yml.match(/- type: bind/g)).toHaveLength(1);
+      expect(yml).not.toContain(`source: ${yamlString(dir)}`);
+      expect(planGeminiMount({ HABBLAUD_GEMINI_DIR: dir, HABBLAUD_GEMINI: '0' }, tmp.dir)).toBeUndefined();
+      expect(planGeminiMount({ HABBLAUD_GEMINI_DIR: dir }, tmp.dir, () => join(tmp.dir, 'fora-da-conta'))).toBeUndefined();
+    } finally { tmp.cleanup(); }
+  });
+
+  it('Antigravity: monta brain/ e só o índice de projetos do cache, ambos em leitura', () => {
+    const tmp = tempDir();
+    try {
+      const dir = join(tmp.dir, '.gemini', 'antigravity-cli');
+      mkdirSync(join(dir, 'brain'), { recursive: true });
+      const mount = planAntigravityMount({ HABBLAUD_ANTIGRAVITY_DIR: dir }, tmp.dir);
+      expect(mount).toMatchObject({
+        hostDir: dir,
+        mountDir: '/antigravity/antigravity-cli',
+        bind: { source: join(dir, 'brain'), target: '/antigravity/antigravity-cli/brain' },
+      });
+      expect(mount?.cacheBind).toBeUndefined();
+      const yml = renderOverride([], new Date(0), undefined, undefined, [], undefined, [], undefined, mount);
+      expect(yml).toContain('HABBLAUD_ANTIGRAVITY_DIR: "/antigravity/antigravity-cli"');
+      expect(yml).toContain(`source: ${yamlString(join(dir, 'brain'))}\n        target: "/antigravity/antigravity-cli/brain"\n        read_only: true`);
+      expect(yml.match(/- type: bind/g)).toHaveLength(1);
+      expect(yml).not.toContain(`source: ${yamlString(dir)}`);
+      expect(yml).not.toContain('HABBLAUD_GEMINI_DIR');
+      expect(planAntigravityMount({ HABBLAUD_ANTIGRAVITY_DIR: dir, HABBLAUD_ANTIGRAVITY: '0' }, tmp.dir)).toBeUndefined();
+      expect(planAntigravityMount({ HABBLAUD_ANTIGRAVITY_DIR: dir }, tmp.dir, () => join(tmp.dir, 'fora-da-conta'))).toBeUndefined();
+
+      const cacheFile = join(dir, 'cache', 'last_conversations.json');
+      mkdirSync(join(dir, 'cache'));
+      writeFileSync(cacheFile, '{}');
+      const withCache = planAntigravityMount({ HABBLAUD_ANTIGRAVITY_DIR: dir }, tmp.dir);
+      expect(withCache?.cacheBind).toEqual({ source: cacheFile, target: '/antigravity/antigravity-cli/cache/last_conversations.json' });
+      const withCacheYml = renderOverride([], new Date(0), undefined, undefined, [], undefined, [], undefined, withCache);
+      expect(withCacheYml.match(/- type: bind/g)).toHaveLength(2);
+      expect(withCacheYml).toContain(`source: ${yamlString(cacheFile)}\n        target: "/antigravity/antigravity-cli/cache/last_conversations.json"\n        read_only: true`);
+      expect(withCacheYml).not.toContain(`source: ${yamlString(join(dir, 'cache'))}`);
+      expect(planAntigravityMount({ HABBLAUD_ANTIGRAVITY_DIR: dir }, tmp.dir, undefined, () => join(tmp.dir, 'fora-da-conta'))?.cacheBind).toBeUndefined();
+    } finally { tmp.cleanup(); }
+  });
+
+  it('Antigravity tem precedência; Gemini legado exige opt-in quando ambos existem', () => {
+    const tmp = tempDir();
+    try {
+      const geminiDir = join(tmp.dir, '.gemini');
+      mkdirSync(join(geminiDir, 'tmp'), { recursive: true });
+      mkdirSync(join(geminiDir, 'antigravity-cli', 'brain'), { recursive: true });
+      expect(planAntigravityMount({}, tmp.dir)).toBeDefined();
+      expect(planGeminiMount({}, tmp.dir, undefined, true)).toBeUndefined();
+      expect(planGeminiMount({ HABBLAUD_GEMINI: '1' }, tmp.dir, undefined, true)?.bind.target).toBe('/gemini/.gemini/tmp');
+      expect(planGeminiMount({ HABBLAUD_GEMINI: '0' }, tmp.dir, undefined, true)).toBeUndefined();
+      expect(planGeminiMount({}, tmp.dir)).toBeDefined();
+    } finally { tmp.cleanup(); }
+  });
+
+  it('override grava atomicamente com ACL privada e preserva o arquivo anterior se falhar', () => {
+    const tmp = tempDir();
+    try {
+      const file = join(tmp.dir, 'docker-compose.override.yml');
+      writePrivateOverride(file, 'anterior');
+      expect(readFileSync(file, 'utf8')).toBe('anterior');
+      if (process.platform === 'win32') {
+        const icacls = join(process.env.SystemRoot!, 'System32', 'icacls.exe');
+        execFileSync(icacls, [file, '/grant', '*S-1-1-0:R', '/Q']);
+        writePrivateOverride(file, 'novo');
+        const script = [
+          "$ErrorActionPreference = 'Stop'",
+          '[Console]::WriteLine([System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value)',
+          '$acl = [System.IO.File]::GetAccessControl($env:HABBLAUD_PRIVATE_FILE)',
+          '$acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]) | ForEach-Object { [Console]::WriteLine($_.IdentityReference.Value) }',
+        ].join('; ');
+        const powershell = join(process.env.SystemRoot!, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+        const lines = execFileSync(powershell, ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], {
+          encoding: 'utf8', env: { ...process.env, HABBLAUD_PRIVATE_FILE: file }, windowsHide: true,
+        }).trim().split(/\r?\n/);
+        expect(lines).toEqual([lines[0], lines[0]]);
+        vi.stubEnv('SystemRoot', '');
+        expect(() => writePrivateOverride(file, 'não gravado')).toThrow();
+        expect(readFileSync(file, 'utf8')).toBe('novo');
+      } else {
+        writePrivateOverride(file, 'novo');
+        expect(statSync(file).mode & 0o777).toBe(0o600);
+        expect(readFileSync(file, 'utf8')).toBe('novo');
+      }
+      expect(readdirSync(tmp.dir)).toEqual(['docker-compose.override.yml']);
+    } finally { vi.unstubAllEnvs(); tmp.cleanup(); }
   });
 
   it('fuso do host vai para o container como TZ', () => {

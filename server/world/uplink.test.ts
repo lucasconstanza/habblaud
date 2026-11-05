@@ -239,7 +239,7 @@ describe('BuildingUplink: conexão e remessas', () => {
   it('última remessa em disco: modo 600, sem token, relida só na mesma sessão', async () => {
     const h = await start();
     await waitFor(() => !!h.uplink.lastUplink()?.ack, 'ack');
-    expect(statSync(h.lastFile).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect(statSync(h.lastFile).mode & 0o777).toBe(0o600);
     const text = readFileSync(h.lastFile, 'utf8');
     expect(text).not.toContain(h.token);
     expect(JSON.parse(text).uplink).toEqual(h.uplink.lastUplink()!.uplink);
@@ -402,7 +402,10 @@ describe('BuildingUplink: conexão e remessas', () => {
   });
 
   it('o tema e as opções do jogador: tema trocado manda de novo; tokens só com tokensVisible', async () => {
-    const h = await start({ tokensVisible: false });
+    const h = await start({ tokensVisible: false, start: false });
+    // O tema automático já é Natal em novembro/dezembro: fixe outro antes da primeira remessa.
+    h.store.setTheme('none');
+    h.uplink.start();
     await waitFor(() => h.world.ws.uplinks.length === 1, 'primeira');
     expect(h.world.ws.uplinks[0].uplink.tokens).toBeUndefined();
     h.store.setTheme('christmas');

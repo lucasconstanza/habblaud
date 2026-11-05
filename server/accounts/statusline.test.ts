@@ -154,13 +154,16 @@ describe('AccountsService com a fonte statusline', () => {
   });
 
   it('sem configDir, casa pelo accountId; vale a fonte mais recente', () => {
-    writeFileSync(join(usageDir, 'x.json'), JSON.stringify(record({ configDir: undefined, accountId: '.claude', fetchedAt: NOW - 120_000 })));
+    writeFileSync(join(usageDir, 'x.json'), JSON.stringify(record({ configDir: undefined, accountId: '.claude', fetchedAt: NOW - 120_000, source: 'mod' })));
     const svc = service();
     expect(svc.list(new Map())[0]).toMatchObject({ usageStatus: 'ok', usage: { source: 'statusline' } });
     // Cache do /usage mais novo vence; statusline mais novo volta a vencer.
     writeFileSync(join(home, '.claude.json'), JSON.stringify({ cachedUsageUtilization: { fetchedAtMs: NOW - 10_000, utilization: { five_hour: { utilization: 70 } } } }));
     svc.refresh();
-    expect(svc.list(new Map())[0].usage).toMatchObject({ source: 'cache', fiveHour: { utilization: 70 } });
+    expect(svc.list(new Map())[0]).toMatchObject({
+      usage: { source: 'cache', fiveHour: { utilization: 70 } },
+      lastLiveUsage: { via: 'mod', fetchedAt: NOW - 120_000 },
+    });
     writeFileSync(join(usageDir, 'x.json'), JSON.stringify(record({ configDir: undefined, accountId: '.claude', fetchedAt: NOW - 1_000 })));
     utimesSync(join(usageDir, 'x.json'), new Date(NOW), new Date(NOW + 2_000));
     svc.refreshStatusline();

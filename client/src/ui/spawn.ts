@@ -1,8 +1,8 @@
-// Novo agente (botão na barra do topo): começa uma sessão do Claude Code em segundo plano no Mac, na pasta escolhida e
+// Novo agente (botão na barra do topo): começa uma sessão do Claude Code em segundo plano no computador, na pasta escolhida e
 // com o pedido (POST /api/spawn; server/spawn/spawn.ts). As pastas são os projetos recentes do computador
 // (GET /api/spawn/folders: histórico de sessões + salas), para escolher com um toque; "Outra pasta" aceita um caminho
 // digitado. O pedido pode levar anexos (POST /api/spawn/attachments, um por arquivo, antes do pedido) e ser ditado
-// (ui/dictation.ts, Whisper local no Mac). Pasta que o Claude Code não conhece cai no app (Enter lá).
+// (ui/dictation.ts, Whisper local no computador). Pasta que o Claude Code não conhece cai no app (Enter lá).
 import { tr } from '../../../shared/i18n';
 import { isDemoId } from '../../../shared/timeline';
 import type { OfficeSnapshot } from '../../../shared/types';
@@ -258,6 +258,10 @@ export class SpawnPanel {
     if (!this.selected) {
       const pref = readPref();
       this.selected = list.some((f) => f.path === pref) ? pref : (list[0]?.path ?? '');
+    }
+    if (list.length && this.typing && !this.folder.value.trim()) {
+      this.pick(this.selected);
+      return;
     }
     this.renderFolders();
   }

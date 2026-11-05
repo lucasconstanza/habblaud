@@ -228,13 +228,41 @@ describe('WorldService: retomada sem resposta do servidor do mundo', () => {
   /** `replies`: as respostas do resume, em ordem (depois delas, sempre ok). */
   function start(replies: Reply[]) {
     const resumeBuilding = vi.fn(async () => replies.shift() ?? ok);
-    const pauseBuilding = vi.fn(async () => ({ ok: true as const, status: 200, data: { state: 'paused' as const } }));
+    const pauseBuilding = vi.fn(async (): Promise<WorldResult<{ state: 'paused' }>> => ({ ok: true, status: 200, data: { state: 'paused' } }));
     const client = { me: async () => me('approved'), resumeBuilding, pauseBuilding } as unknown as WorldClient;
     // random 0.5: a espera é exatamente a base (2 s, 4 s, 8 s...).
     const service = new WorldService({ config: { enabled: true, dev: true, url: 'http://127.0.0.1:1' }, terminal: true, store, client, random: () => 0.5 });
     services.push(service);
     return { service, resumeBuilding, pauseBuilding };
   }
+
+  it('pausa só responde sucesso após confirmação; falha deixa envio parado e permite tentar de novo', async () => {
+    const { service, pauseBuilding } = start([]);
+    pauseBuilding.mockResolvedValueOnce({ ok: false, status: 503, code: 'unavailable' });
+    const first = await service.pause();
+    expect(first).toEqual({ ok: false, status: 503, code: 'unavailable' });
+    expect(store.get()?.paused).toBe(true);
+    expect((await service.pause()).ok).toBe(true);
+    expect(pauseBuilding).toHaveBeenCalledTimes(2);
+  });
+
+  it('falha temporária da pausa tenta de novo; retomar cancela a tentativa pendente', async () => {
+    const { service, pauseBuilding } = start([]);
+    pauseBuilding.mockResolvedValueOnce({ ok: false, status: 503, code: 'unavailable' });
+    expect((await service.pause()).ok).toBe(false);
+    await vi.advanceTimersByTimeAsync(1_999);
+    expect(pauseBuilding).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(pauseBuilding).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(pauseBuilding).toHaveBeenCalledTimes(2);
+
+    pauseBuilding.mockResolvedValueOnce({ ok: false, status: 503, code: 'unavailable' });
+    await service.pause();
+    await service.resume();
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(pauseBuilding).toHaveBeenCalledTimes(3);
+  });
 
   it('tenta de novo com a espera crescente da reconexão (2 s, 4 s...) até o servidor confirmar', async () => {
     const { service, resumeBuilding } = start([down, down, { ok: false, status: 503, code: 'unavailable' }]);

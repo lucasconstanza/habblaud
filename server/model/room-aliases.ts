@@ -5,12 +5,14 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { errMsg, log } from '../log';
 import { tr } from '../../shared/i18n';
+import { normalizeCwd } from './rooms';
 
 export const ROOM_NAME_MAX = 40;
 
 /** Chave comparável de um caminho (barras normais, sem barra final, sem diferença de maiúsculas). */
 export function pathKey(p: string): string {
-  return p.trim().replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+  const key = normalizeCwd(p.replace(/\\/g, '/')).toLowerCase();
+  return key === '/' || /^[a-z]:\/$/.test(key) ? key.slice(0, -1) : key;
 }
 
 export class RoomAliases {

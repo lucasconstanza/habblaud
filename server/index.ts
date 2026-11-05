@@ -6,7 +6,8 @@ import http from 'node:http';
 import { join } from 'node:path';
 import { codexDirsRefused, isDefaultDir } from './accounts/detect';
 import { AccountsService } from './accounts/service';
-import { isTruthy, loadConfig, messagesOffReason, terminalOffReason, worldSocketUrl } from './config';
+import { ClaudeUsageRefresher, claudeUsageCommand } from './accounts/refresh';
+import { isLoopbackBind, isTruthy, loadConfig, messagesOffReason, terminalOffReason, worldSocketUrl } from './config';
 import { createApiHandler, sendJson } from './http/app';
 import { createRequestGuard, isLoopbackHost } from './http/guard';
 import { createRemoteGate, isRemoteRequest, loadSecret, RemoteSessions, startRemoteListener, type RemoteListener } from './http/remote';
@@ -37,6 +38,10 @@ import { ClaudeWatcher } from './sources/watcher';
 import { discoverCodexDirs } from './sources/codex/accounts';
 import { CodexHistory } from './sources/codex/history';
 import { CodexSource } from './sources/codex/source';
+import { discoverGeminiDir, legacyGeminiEnabled, unsupportedPersonalGemini } from './sources/gemini/accounts';
+import { GeminiSource } from './sources/gemini/source';
+import { discoverAntigravityDir } from './sources/antigravity/accounts';
+import { AntigravitySource } from './sources/antigravity/source';
 import { createBuildReader, readBuildInfo } from './build';
 import { UpdateChecker } from './updates/checker';
 import { getLocale, tr } from '../shared/i18n';
@@ -120,7 +125,8 @@ const office = new Office({
   // No modo dev o Vite serve o cliente direto do código-fonte: não há build para comparar.
   build: config.dev ? undefined : createBuildReader(config.rootDir),
   startedAt,
-  accounts: (sessions) => accounts.list(sessions),
+  accounts: (sessions) => accounts.list(sessions).map((a) => a.provider === 'antigravity' && antigravity?.quota()
+    ? { ...a, antigravityQuota: antigravity.quota() } : a),
   sources: () => late.agents?.sources() ?? [],
   accountName: (id) => accounts.find(id)?.detected.name,
   terminal: config.terminal,
@@ -138,6 +144,15 @@ const agents = new SourceSet([claude]);
 const codexDirs = config.codex ? discoverCodexDirs(process.env, config.home) : [];
 const codex = codexDirs.length ? new CodexSource({ accounts, office, dirs: codexDirs, env: process.env, home: config.home }) : undefined;
 if (codex) agents.add(codex);
+const antigravityDir = discoverAntigravityDir(process.env, config.home);
+const antigravity = antigravityDir ? new AntigravitySource({ accounts, office, dir: antigravityDir,
+  statusFile: join(config.dataDir, 'antigravity-quota.json') }) : undefined;
+if (antigravity) agents.add(antigravity);
+const detectedGeminiDir = discoverGeminiDir(process.env, config.home);
+const geminiDir = detectedGeminiDir && legacyGeminiEnabled(process.env, !!antigravity, unsupportedPersonalGemini(detectedGeminiDir))
+  ? detectedGeminiDir : undefined;
+const gemini = geminiDir ? new GeminiSource({ accounts, office, dir: geminiDir, inDocker: config.inDocker }) : undefined;
+if (gemini) agents.add(gemini);
 // Eventos dos hooks do Codex (POST /api/codex/events, mod/habblaud-codex/hook.mjs): vão para a fonte do Codex ao vivo
 // (CodexLive); sem ela (nenhuma pasta do Codex ou HABBLAUD_CODEX=0) a rota responde {ok: false}.
 const codexLive: CodexLive | undefined = codex;
@@ -196,6 +211,8 @@ const history = config.terminal
   ? new HistorySet([new SessionHistory({ accounts: () => accounts.entries(), openAgentOf: (acc, sid) => openMainAgent(office.list(), acc, sid) })])
   : undefined;
 if (history && codex) history.add(new CodexHistory({ accounts: () => accounts.entriesOf('codex'), openAgentOf: (acc, sid) => openMainAgent(office.list(), acc, sid) }));
+if (history && gemini) history.add(gemini.history);
+if (history && antigravity) history.add(antigravity.history);
 // Entregas: o fim de cada pedido, lido dos transcripts do histórico (mesma trava do terminal). Os arquivos entregues
 // são lidos aqui (Node, ou pasta de conta montada no Docker) ou pelo auxiliar do host.
 const deliveries = history
@@ -282,6 +299,8 @@ late.messages = messages;
 // do Docker, com node-pty e o executável do claude no PATH.
 const claudeBinSetting = process.env.HABBLAUD_CLAUDE_BIN?.trim();
 const claudeBin = claudeBinFrom();
+const usageRefresh = !config.inDocker && claudeBin && isExecutableFile(claudeBin)
+  ? new ClaudeUsageRefresher(accounts, claudeUsageCommand(claudeBin, config.home)) : undefined;
 let spawnPty: SpawnPty | null = null;
 let ptyScreen: ScreenFactory | undefined;
 let ptyOff: string | undefined;
@@ -349,9 +368,11 @@ const api = createApiHandler({
   office,
   hub,
   accounts,
+  usageRefresh,
   sources: () => agents.sources(),
   version: config.version,
   inDocker: config.inDocker,
+  privateBind: config.inDocker ? isLoopbackBind(process.env.HABBLAUD_BIND) : isLoopbackBind(config.host),
   terminal: config.terminal,
   terminals,
   sessions: history,
@@ -372,6 +393,8 @@ const api = createApiHandler({
     return recentFolders(history ? await history.list().catch(() => []) : [], rooms);
   },
   codexLive,
+  geminiLive: gemini,
+  antigravityLive: antigravity,
   stats,
   updates,
   remote: config.remote ? { is: isRemoteRequest, allows: (f) => config.remote!.allow.has(f) } : undefined,
@@ -491,6 +514,8 @@ server.listen(config.port, config.host, () => {
   } else {
     log.info(tr('   Codex: {0}.', [config.codex ? tr('nenhuma pasta do Codex encontrada (defina HABBLAUD_CODEX_DIRS)') : tr('desligado (HABBLAUD_CODEX=0)')]));
   }
+  if (gemini) log.info(tr('   Gemini CLI: conta {0}, {1} sessão(ões) confirmada(s) por hook.', [gemini.accountEntry().id, gemini.sources()[0].sessions]));
+  if (antigravity) log.info(tr('   Antigravity CLI: conta {0}, {1} sessão(ões) confirmada(s) por hook/statusline.', [antigravity.accountEntry().id, antigravity.sources()[0].sessions]));
   if (office.isDemo()) log.info(tr('   Modo demonstração ligado (agentes simulados misturados aos reais).'));
   if (config.terminal) log.info(tr('   Terminal: ligado (acesso só local).'));
   else log.info(tr('   Terminal: desligado ({0}).', [terminalOffReason(process.env, config.host, config.inDocker)]));

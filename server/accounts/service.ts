@@ -244,6 +244,10 @@ export class AccountsService {
       if (d.organization) info.organization = d.organization;
       if (d.plan) info.plan = d.plan;
       if (view.usage) info.usage = view.usage;
+      if (e.provider === 'claude') {
+        const live = this.usage.source(e.id, 'statusline');
+        if (live?.via) info.lastLiveUsage = { via: live.via, fetchedAt: live.fetchedAt };
+      }
       return info;
     });
   }

@@ -5,7 +5,7 @@
 <h1 align="center">Habblaud</h1>
 
 <p align="center">
-  <b>The virtual office for your Claude Code (and Codex) agents.</b><br />
+  <b>The virtual office for your Claude Code, Codex, and Antigravity CLI agents.</b><br />
   Each project becomes a room, and each agent becomes a pixel-art character that shows, in real time, what it's doing.
 </p>
 
@@ -28,15 +28,15 @@
 You open Claude Code in several projects, launch subagents, leave tasks running… and lose track of who's doing
 what. **Habblaud** turns all of that into an office you can take in at a glance: who's typing, who raised a hand
 because they **need you**, who delivered their work and left, who went for a coffee while waiting for the next
-instruction — and how much of each account you've already used in the 5-hour session and in the week.
+instruction — and the usage limits each tool reports.
 
 And when two or more agents have nothing to do, the office gets a **social life**: each one has its own personality,
 and they watch soccer together in the lounge, play video games and ping-pong, gossip in the kitchen, freshen up at the
 mirror and bet coins on rock-paper-scissors. See [Social life](#social-life).
 
-Everything runs on your machine, reading the files Claude Code itself already writes (plus only the `alias` lines in
-your shell, to give each account its letter). Nothing leaves the computer: Habblaud doesn't read credentials or make
-external calls.
+The local office reads files written by the tools installed on your computer. Habblaud does not read those accounts'
+credentials. Optional external features, including Habblaud World and update checks, make network requests when
+enabled; review their settings before turning them on.
 
 ## Contents
 
@@ -127,10 +127,10 @@ shrinks on its own.
 
 ### Requirements
 
-- **macOS** (tested) or Linux.
-- **[Claude Code](https://code.claude.com)** installed, with one or more accounts (2.1.287 or newer for the mod).
+- **Windows 11** (tested), macOS, or Linux.
+- At least one installed tool: **[Claude Code](https://code.claude.com)**, **Codex**, **[Antigravity CLI](https://antigravity.google/docs/getting-started?tab=cli)**, or legacy Gemini CLI. The Claude Code live-usage mod requires version 2.1.287 or newer.
 - **Node.js 22.12+** and **npm** (developed with Node 24; Docker already uses Node 24).
-- **Docker Desktop** (or Docker Engine with Compose v2), if you're going to run it in a container.
+- **Docker Desktop** (or Docker Engine with Compose v2), if you're going to run it in a container. Windows shortcuts require Python with `pywin32` and PowerShell 7; see [local startup](local/README.md).
 
 ### 1. Get the project
 
@@ -151,7 +151,7 @@ npm install
 npm run docker:up
 ```
 
-The script detects your Claude Code accounts, mounts only the folders it needs (read-only), builds
+The script detects your local Claude Code, Codex, Antigravity CLI, and legacy Gemini CLI accounts, mounts only the folders it needs (read-only), builds
 the image and starts the container — which restarts on its own along with Docker. Open **http://localhost:4747**.
 
 **Option B — Node, without Docker**
@@ -162,6 +162,8 @@ npm start
 ```
 
 Open **http://localhost:4747**. For development, use `npm run dev` (server + Vite with hot reload).
+
+On Windows 11, see the [console-free desktop and startup shortcuts](local/README.md) to launch the office from the tray.
 
 Now open Claude Code in any project and watch your agent arrive by elevator. 🎉
 
@@ -226,7 +228,66 @@ npm run codex:status       # confere
 
 Then **open Codex and approve the Habblaud hooks in `/hooks`**: Codex only runs a new hook after you
 approve it (Habblaud never writes that approval). With Habblaud in Docker, to send messages to Codex sessions,
-also keep `npm run codex:bridge` running on the Mac (see [Codex](#codex)).
+also keep `npm run codex:bridge` running on the host computer (see [Codex](#codex)).
+
+### Antigravity CLI in the office (Google account)
+
+Habblaud recognizes **Antigravity CLI** (`agy`) as its own tool, separate from legacy Gemini CLI. Your Google account
+appears at the top; an observed session in a project shared with Claude Code or Codex uses the same room. On the
+computer running `agy`, enable presence and quota capture:
+
+```powershell
+npm run antigravity:status
+npm run antigravity:install -- --dry-run
+npm run antigravity:install
+```
+
+The installer preserves other tools' hooks and the existing status line configuration, backing up files before
+changing them. Habblaud receives only local session metadata and quota buckets reported by the CLI; it does not
+read Google credentials or send prompts, responses, or tool arguments through its hooks. The card shows the
+**remaining percentage** only for buckets with a valid `remaining_fraction` and marks old readings. To see all
+current limits and credits, run [`/usage`](https://antigravity.google/docs/cli/commands/usage) in Antigravity CLI.
+Messages and permissions remain in the CLI. `npm run antigravity:uninstall` removes Habblaud's capture. In Docker,
+history is mounted read-only, without settings or credentials.
+
+The last quota reading, its timestamp, email, and plan are kept in the private `antigravity-quota.json` cache in
+Habblaud's data directory (`~/.habblaud` in Node mode; `/data` in Docker). It survives a restart and appears as an
+**old reading** after 30 minutes; no prompt or transcript is saved there. Quota refreshes when the `agy` TUI runs
+its status line. `agy --print /usage` prints a CLI report but does not trigger Habblaud's capture.
+
+### Legacy Gemini CLI (API key or enterprise license)
+
+[Google announced](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/)
+that Gemini CLI stopped serving personal free, Pro, and Ultra accounts on June 18, 2026. Gemini Code Assist
+Standard/Enterprise licenses and paid API keys remain supported. Habblaud keeps the integration below for those
+users; it does not replace the Antigravity CLI account. Legacy Gemini CLI is detected automatically only when
+Antigravity CLI is absent. Set `HABBLAUD_GEMINI=1` to show both sources.
+
+Habblaud detects `~/.gemini/tmp` and shows the Gemini CLI account and recent history from `chats/*.jsonl`.
+It uses `.project_root` to associate each conversation with its project. A **live session** appears only after
+Gemini CLI sends a local hook event; a recent chat file alone cannot prove that the CLI is still open. Preview
+the configuration before enabling it:
+
+```powershell
+npm run gemini:status
+npm run gemini:install -- --dry-run
+npm run gemini:install
+```
+
+The installer adds observational hooks to `~/.gemini/settings.json`, preserves other hooks, and backs up the file.
+Then open a new Gemini CLI session. The hook sends only session ID, project directory, local transcript path, event, and time to
+`127.0.0.1`, never prompts or responses. `npm run gemini:uninstall` removes Habblaud's hooks. The office terminal
+can read local chat history; messaging and approvals remain in Gemini CLI.
+The Gemini account card does not show 5-hour or weekly percentages: those windows belong to other tools, and
+Habblaud does not receive structured quota data from Gemini CLI. To check this session's token usage and model quota,
+run `/stats model` in Gemini CLI. The result stays in the CLI and is not captured by Habblaud's hooks.
+Rooms without an active session are
+not created. Habblaud World does not yet accept Gemini in its protocol, so these agents and rooms remain local.
+With `npm run docker:up`, Habblaud mounts **only** `~/.gemini/tmp` as read-only, without settings or credentials.
+Hooks reach the published port on the host's `127.0.0.1`; keep `HABBLAUD_BIND` local to accept them. In Docker,
+Windows paths written to `.project_root` still identify the same projects and rooms.
+If two A2A sessions in the same folder share a session ID, `transcript_path` distinguishes their characters;
+without that path, the hook cannot distinguish them until the CLI provides it.
 
 ### Open on your phone (optional)
 
@@ -659,7 +720,7 @@ Want to see the office full without having any sessions open?
 
 > **Codex** accounts come in on their own (each `~/.codex*` folder or `CODEX_HOME` is an account; the letter comes from an
 > `alias x='CODEX_HOME=… codex'`, if there is one) and their usage comes from Codex's files; see [Codex](#codex). The rest
-> of this section is about Claude Code.
+> of this section is about Claude Code. For the Google account, see [Antigravity CLI](#antigravity-cli-in-the-office-google-account); for legacy use, see [Gemini CLI](#legacy-gemini-cli-api-key-or-enterprise-license).
 
 If you use more than one Claude Code account (for example, a `c` shortcut with `~/.claude` and a `d` with
 `CLAUDE_CONFIG_DIR=~/.claude-conta2`), Habblaud shows them all together: each agent carries its account's chip and the top bar
@@ -700,6 +761,8 @@ reply. Check with `npm run mod:status`. On earlier versions of Claude Code, the 
 | Statusline tap (Claude Code older than 2.1.287) | Live, through the statusline command, in the same file. |
 | `/usage` cache (always on) | Claude Code saves the last result of the `/usage` command. In Node mode, Habblaud rereads it every 60 s; in Docker, the value read at the last `npm run docker:up` applies. It only changes when someone runs `/usage`. |
 
+On the Claude account card, **Refresh usage** runs `claude --print --no-session-persistence --output-format json '/usage'` on demand for the selected account and rereads the cache. This requires Habblaud running locally in Node with Claude Code installed and authenticated; in Docker, the action returns 503 because the host CLI does not run in the container. Claude may omit the 5-hour window; it then appears as unknown even when weekly usage is current.
+
 The sources are local files: none of them reads passwords or tokens, or makes network calls. The source with the
 most recent numbers always wins. Numbers older than 30 minutes show up as **outdated**; a window that has already reset
 since the numbers were collected shows up as **—** until new numbers arrive.
@@ -729,12 +792,16 @@ Everything works without configuring anything. If you need to adjust something, 
 | `HABBLAUD_CODEX` | on | `0` turns off Codex in the office. |
 | `HABBLAUD_CODEX_DIRS` | automatic detection | Codex folders, comma-separated (instead of `~/.codex*` and `CODEX_HOME`). |
 | `HABBLAUD_CODEX_BIN` | `codex` from PATH (on Windows, `codex.exe`) | The Codex binary that delivers the messages (`codex queue`), in Node mode or in `npm run codex:bridge`. |
+| `HABBLAUD_GEMINI` | automatic (off when Antigravity is detected) | `1` also enables legacy Gemini CLI; `0` turns it off. |
+| `HABBLAUD_GEMINI_DIR` | `~/.gemini` | Legacy Gemini CLI folder for history and presence hooks. |
+| `HABBLAUD_ANTIGRAVITY` | on | `0` turns off Antigravity CLI in the office. |
+| `HABBLAUD_ANTIGRAVITY_DIR` | `~/.gemini/antigravity-cli` | Antigravity CLI local history folder. |
 | `HABBLAUD_UPDATE_CHECK` | on | `0` turns off the new-version check (a request to the repository's releases on GitHub every 6 h). |
 | `HABBLAUD_LANG` | system language (except English), otherwise `pt-BR` | Language of the texts the server builds (activities, notices, logs): `pt-BR`, `en`, `es` or `fr`. The interface follows the browser or the choice in Settings › Language. See [Languages](#languages). |
 | `HABBLAUD_ACCOUNTS` | — | JSON to customize name, letter or color, matched by the account folder name. E.g. `[{"id":".claude-conta2","name":"Trabalho","short":"T","color":"#5cc97b"}]`. |
 
 **In Docker**, `HABBLAUD_PORT`, `HABBLAUD_BIND`, `HABBLAUD_ALLOWED_HOSTS`, `HABBLAUD_DEMO`, `HABBLAUD_TERMINAL`,
-`HABBLAUD_MENSAGENS`, `HABBLAUD_CODEX`, `HABBLAUD_UPDATE_CHECK`, `HABBLAUD_LANG`, `HABBLAUD_PTY`, the `HABBLAUD_WORLD*` and the
+`HABBLAUD_MENSAGENS`, `HABBLAUD_CODEX`, `HABBLAUD_GEMINI`, `HABBLAUD_ANTIGRAVITY`, `HABBLAUD_UPDATE_CHECK`, `HABBLAUD_LANG`, `HABBLAUD_PTY`, the `HABBLAUD_WORLD*` and the
 `HABBLAUD_REMOTE_*` apply (in `.env` or in the environment), as do `HABBLAUD_CLAUDE_DIRS`, `HABBLAUD_CODEX_DIRS`, `HABBLAUD_USAGE_DIR` and
 `HABBLAUD_ACCOUNTS` (read by `docker:up` on the host); the rest are fixed inside the container. Options: `npm run docker:up -- --no-build` (starts without rebuilding),
 `npm run docker:down` (stops) and `npm run docker:logs` (follows the logs).

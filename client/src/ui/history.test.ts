@@ -25,6 +25,16 @@ describe('sessões do Codex no histórico', () => {
     ]);
     expect(filterSessions(list, 'codex').map((s) => s.sessionId)).toEqual(['x']);
   });
+
+  it('mantém Antigravity separado do Gemini legado no histórico e na busca', () => {
+    const list = parseRecentSessions({ sessions: [
+      { account: '.antigravity-cli', provider: 'antigravity', sessionId: 'a', projectDir: '/p', lastAt: 2 },
+      { account: '.gemini', provider: 'gemini', sessionId: 'g', projectDir: '/p', lastAt: 1 },
+    ] });
+    expect(list.map((s) => s.provider)).toEqual(['antigravity', 'gemini']);
+    expect(filterSessions(list, 'antigravity').map((s) => s.sessionId)).toEqual(['a']);
+    expect(filterSessions(list, 'gemini').map((s) => s.sessionId)).toEqual(['g']);
+  });
 });
 
 describe('groupSessionsByDay', () => {

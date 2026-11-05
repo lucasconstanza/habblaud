@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ModSummary, OfficeSnapshot, PermissionRequestInfo, UpdateStatus } from '../../shared/types';
 import { AccountsService } from '../accounts/service';
+import type { ClaudeUsageRefresher } from '../accounts/refresh';
 import { setQuiet } from '../log';
 import { NameStore } from '../model/names';
 import { Office, type OfficeDeps } from '../model/office';
@@ -113,6 +114,36 @@ describe('API HTTP', () => {
     expect(snap.meta.version).toBe('9.9.9');
   });
 
+  it('POST /api/usage/refresh só aceita JSON da própria origem local e devolve snapshot novo', async () => {
+    await env.close();
+    env.cleanup();
+    const refresh = vi.fn(async (id: string) => id === '.claude' ? 'ok' as const : 'unknown-account' as const);
+    env = await start({ usageRefresh: { refresh } as unknown as ClaudeUsageRefresher });
+    const path = '/api/usage/refresh';
+    const body = JSON.stringify({ accountId: '.claude' });
+    expect((await raw(env.base, path, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: 'https://evil.example' }, body })).status).toBe(403);
+    expect((await raw(env.base, path, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:9999' }, body })).status).toBe(403);
+    expect((await raw(env.base, path, { method: 'POST', headers: { 'Content-Type': 'application/json', Host: 'habblaud.lan' }, body })).status).toBe(403);
+    expect((await raw(env.base, path, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body })).status).toBe(415);
+    expect((await raw(env.base, path, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ accountId: '../fora' }) })).status).toBe(404);
+    expect(refresh).toHaveBeenCalledOnce();
+    const ok = await raw(env.base, path, { method: 'POST', headers: JSON_HEADERS, body });
+    expect(ok.status).toBe(200);
+    expect((JSON.parse(ok.body) as { snapshot: OfficeSnapshot }).snapshot.accounts[0].id).toBe('.claude');
+    expect(refresh).toHaveBeenLastCalledWith('.claude');
+  });
+
+  it('POST /api/usage/refresh informa quando não há CLI local e quando ela falha', async () => {
+    const unavailable = await raw(env.base, '/api/usage/refresh', { method: 'POST', headers: JSON_HEADERS, body: '{"accountId":".claude"}' });
+    expect(unavailable.status).toBe(503);
+    await env.close();
+    env.cleanup();
+    env = await start({ usageRefresh: { refresh: async () => 'cli-failed' } as unknown as ClaudeUsageRefresher });
+    const failed = await raw(env.base, '/api/usage/refresh', { method: 'POST', headers: JSON_HEADERS, body: '{"accountId":".claude"}' });
+    expect(failed.status).toBe(502);
+    expect(failed.body).not.toContain('token');
+  });
+
   it('GET /api/stream envia retry, snapshot e feed; depois as mudanças', async () => {
     const ctrl = new AbortController();
     const res = await fetch(`${env.base}/api/stream`, { signal: ctrl.signal });
@@ -191,6 +222,38 @@ describe('API HTTP', () => {
     expect((await fetch(`${env.base}/api/demo`, { method: 'POST', headers: JSON_HEADERS, body: '{"enabled":1}' })).status).toBe(400);
     expect((await fetch(`${env.base}/api/demo`, { method: 'POST', headers: JSON_HEADERS, body: '{' })).status).toBe(400);
     expect((await fetch(`${env.base}/api/demo`)).status).toBe(405);
+  });
+
+  it('porta Docker exposta não aceita ações locais com Host forjado', async () => {
+    const world = vi.fn((_req: http.IncomingMessage, res: http.ServerResponse) => res.end('world'));
+    const exposed = await start({ inDocker: true, privateBind: false, terminal: false, world });
+    try {
+      const headers = { ...JSON_HEADERS, Host: `localhost:${new URL(exposed.base).port}` };
+      expect((await raw(exposed.base, '/api/world/export', { headers })).status).toBe(403);
+      expect(world).not.toHaveBeenCalled();
+      expect((await raw(exposed.base, '/api/codex/events', { method: 'POST', headers, body: '{"event":{"hook_event_name":"SessionStart"}}' })).status).toBe(403);
+      expect((await raw(exposed.base, '/api/gemini/events', { method: 'POST', headers, body: '{}' })).status).toBe(403);
+      expect((await raw(exposed.base, '/api/demo', { method: 'POST', headers, body: '{"enabled":true}' })).status).toBe(403);
+      expect((await snapshotOf(exposed.base)).meta.demo).toBe(false);
+    } finally {
+      await exposed.close();
+      exposed.cleanup();
+    }
+  });
+
+  it('porta Docker privada aceita hooks observacionais mesmo com terminal desligado', async () => {
+    const world = vi.fn((_req: http.IncomingMessage, res: http.ServerResponse) => res.end('world'));
+    const local = await start({ inDocker: true, privateBind: true, terminal: false, world });
+    try {
+      const headers = { ...JSON_HEADERS, Host: `localhost:${new URL(local.base).port}` };
+      expect((await raw(local.base, '/api/world/status', { headers })).status).toBe(200);
+      expect(world).toHaveBeenCalledOnce();
+      expect((await raw(local.base, '/api/codex/events', { method: 'POST', headers, body: '{"event":{"hook_event_name":"SessionStart"}}' })).status).toBe(200);
+      expect((await raw(local.base, '/api/gemini/events', { method: 'POST', headers, body: '{}' })).status).toBe(404);
+    } finally {
+      await local.close();
+      local.cleanup();
+    }
   });
 
   it('DNS rebinding: Host de outro domínio é recusado em qualquer rota', async () => {

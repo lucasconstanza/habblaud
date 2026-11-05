@@ -106,7 +106,9 @@ export function setLocale(l: Locale): void {
  */
 export function tr(src: string, args?: readonly unknown[]): string {
   const dict = DICTS[current];
-  const s = (dict && dict[src]) || src;
+  // Template literals multilinha seguem o fim de linha do checkout (CRLF no Windows).
+  // As chaves dos dicionários usam LF; preserve o original quando não houver tradução.
+  const s = (dict && dict[src.replace(/\r\n/g, '\n')]) || src;
   if (!args || args.length === 0) return s;
   return s.replace(/\{(\d+)\}/g, (m, i: string) => (Number(i) < args.length ? String(args[Number(i)]) : m));
 }

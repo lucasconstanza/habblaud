@@ -106,6 +106,11 @@ export class UsageStore {
     return this.entries.get(accountId)?.delete(source) ?? false;
   }
 
+  /** Última leitura de uma origem, inclusive quando outra origem mais recente está em exibição. */
+  source(accountId: string, source: UsageSource): AccountUsage | undefined {
+    return this.entries.get(accountId)?.get(source);
+  }
+
   /** Esquece todas as origens da conta (ela saiu). Devolve true se havia algo. */
   forget(accountId: string): boolean {
     const had = !!this.entries.get(accountId)?.size;

@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { AccountInfo } from '../../../shared/types';
-import { cardState, codexUsageNote, showsUsageAge, sourceLabel, usageMessage, usageSubtitle } from './usage';
+import { antigravityQuotaView, cardState, claudeLiveCaptureNote, codexUsageNote, geminiUsageNote, requestClaudeUsageRefresh, showsUsageAge, sourceLabel, staleMeterDisplay, usageMessage, usageSubtitle } from './usage';
 
 const MIN = 60_000;
 type Acc = Pick<AccountInfo, 'usage' | 'usageStatus' | 'provider' | 'email' | 'plan' | 'configDir'>;
@@ -14,6 +14,61 @@ describe('sourceLabel', () => {
     expect(sourceLabel({ source: 'statusline', fetchedAt: 0 })).toBe('ao vivo (statusline do Claude Code)');
     expect(sourceLabel({ source: 'cache', fetchedAt: 0 })).toBe('cache do /usage do Claude Code');
     expect(sourceLabel({ source: 'codex', fetchedAt: 0 })).toBe('arquivos do Codex');
+  });
+});
+
+describe('orientação por conta', () => {
+  it('Antigravity mostra apenas fração restante verificada por grupo e esconde leituras antigas', () => {
+    const at = 1_000_000_000;
+    const q = { antigravityQuota: { fetchedAt: at, buckets: [
+      { id: 'gemini-weekly', remainingFraction: 0.9378, resetAt: at + 3_600_000 },
+      { id: 'sem-fracao' },
+      { id: 'invalido', remainingFraction: 1.2 },
+      { id: 'desligado', remainingFraction: 0.8, disabled: true },
+    ] } };
+    const fresh = antigravityQuotaView(q, at + MIN);
+    expect(fresh.state).toBe('ok');
+    expect(fresh.buckets[0]).toMatchObject({ id: 'gemini-weekly', remainingPct: 93.8, current: true });
+    expect(fresh.buckets.slice(1).every((b) => b.remainingPct === undefined)).toBe(true);
+    expect(antigravityQuotaView(q, at + 31 * MIN).buckets[0].current).toBe(false);
+    expect(antigravityQuotaView(q, at + 31 * MIN).state).toBe('stale');
+    expect(antigravityQuotaView({ antigravityQuota: { fetchedAt: at, buckets: [{ id: 'expirado', remainingFraction: 0.5, resetAt: at + 1 }] } }, at + MIN).state).toBe('stale');
+    expect(usageMessage({ provider: 'antigravity', usageStatus: 'disabled' })).toEqual(['Cota ainda não capturada', 'Sem leitura']);
+  });
+  it('explica a última captura do mod sem tratar o cache posterior como prova de uso ao vivo', () => {
+    expect(claudeLiveCaptureNote({ lastLiveUsage: { via: 'mod', fetchedAt: 0 } }, 2 * 60 * MIN)).toContain('O mod do Habblaud já capturou uso nesta conta (há 2 h).');
+    expect(claudeLiveCaptureNote({ lastLiveUsage: { via: 'tap', fetchedAt: 0 } }, 2 * 60 * MIN)).toContain('O tap de statusline já capturou uso nesta conta (há 2 h).');
+    expect(claudeLiveCaptureNote({}, 0)).toBe('');
+  });
+
+  it('retira percentual e preenchimento da barra stale; preserva o valor histórico somente na dica', () => {
+    const view = { pct: 100, renewed: false, reset: '', resetShort: '', summary: '100% usado' };
+    expect(staleMeterDisplay(view, 'Semana')).toEqual({ pct: '—', barPct: '0', label: 'Semana: última leitura 100% usado. Uso atual desconhecido.' });
+    expect(staleMeterDisplay({ ...view, pct: null, renewed: true }, 'Semana')).toBeNull();
+  });
+
+  it('Gemini orienta a consultar a cota na própria CLI sem inventar janelas de 5 h/semana', () => {
+    expect(usageMessage({ provider: 'gemini', usageStatus: 'disabled' })).toEqual(['Cota no Gemini CLI', 'Ver cota na CLI']);
+    expect(geminiUsageNote()).toContain('/stats model');
+  });
+});
+
+describe('atualização manual do cartão Claude', () => {
+  it('envia somente o ID da conta e recarrega o snapshot depois do sucesso', async () => {
+    const requester = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    const reload = vi.fn(async () => {});
+    await requestClaudeUsageRefresh('.claude-conta2', reload, requester as typeof fetch);
+    expect(requester).toHaveBeenCalledWith('/api/usage/refresh', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"accountId":".claude-conta2"}',
+    });
+    expect(reload).toHaveBeenCalledOnce();
+  });
+
+  it('mostra erro seguro do servidor sem recarregar o snapshot', async () => {
+    const requester = vi.fn(async () => new Response(JSON.stringify({ error: 'CLI indisponível' }), { status: 503 }));
+    const reload = vi.fn(async () => {});
+    await expect(requestClaudeUsageRefresh('.claude', reload, requester as typeof fetch)).rejects.toThrow('CLI indisponível');
+    expect(reload).not.toHaveBeenCalled();
   });
 });
 

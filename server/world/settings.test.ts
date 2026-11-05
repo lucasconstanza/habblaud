@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -13,6 +14,7 @@ const SESSION = { deviceId: 'dev_1', token: TOKEN, email: 'ana@exemplo.com', acc
 const cleanups: Array<() => void> = [];
 afterEach(() => {
   while (cleanups.length) cleanups.pop()!();
+  vi.unstubAllEnvs();
   setQuiet(true);
 });
 
@@ -23,12 +25,32 @@ function store(now = () => 1_000) {
   return { file, dir: join(tmp.dir, 'data'), store: new WorldSettingsStore(file, now) };
 }
 
+function expectPrivate(file: string): void {
+  if (process.platform !== 'win32') {
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+    return;
+  }
+  const script = [
+    "$ErrorActionPreference = 'Stop'",
+    '[Console]::WriteLine([System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value)',
+    '$acl = [System.IO.File]::GetAccessControl($env:HABBLAUD_PRIVATE_FILE)',
+    '$acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]) | ForEach-Object { [Console]::WriteLine($_.IdentityReference.Value) }',
+  ].join('; ');
+  const powershell = join(process.env.SystemRoot!, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  const lines = execFileSync(powershell, ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], {
+    encoding: 'utf8',
+    env: { ...process.env, HABBLAUD_PRIVATE_FILE: file },
+    windowsHide: true,
+  }).trim().split(/\r?\n/);
+  expect(lines).toEqual([lines[0], lines[0]]);
+}
+
 describe('WorldSettingsStore', () => {
   it('grava com modo 600 (sem temporário sobrando) e relê igual', () => {
     const { file, dir, store: s } = store();
     expect(s.load()).toBeUndefined();
     expect(s.save(SESSION)).toBe(true);
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+    expectPrivate(file);
     expect(readdirSync(dir)).toEqual(['world.json']);
     expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ ...SESSION, updatedAt: 1_000 });
     expect(new WorldSettingsStore(file).load()).toEqual({ ...SESSION, updatedAt: 1_000 });
@@ -37,17 +59,40 @@ describe('WorldSettingsStore', () => {
   it('fecha a permissão de um arquivo aberto demais ao ler', () => {
     const { file, store: s } = store();
     s.save(SESSION);
-    chmodSync(file, 0o644);
+    if (process.platform === 'win32') {
+      const icacls = join(process.env.SystemRoot!, 'System32', 'icacls.exe');
+      execFileSync(icacls, [file, '/grant', '*S-1-1-0:R', '/Q']);
+    } else chmodSync(file, 0o644);
     expect(new WorldSettingsStore(file).load()?.token).toBe(TOKEN);
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+    expectPrivate(file);
   });
 
-  it('o 600 vale também por cima de um temporário velho com outra permissão', () => {
+  it.skipIf(process.platform !== 'win32')('não herda leitura pública de uma pasta compartilhada no Windows', () => {
     const { file, dir, store: s } = store();
     mkdirSync(dir, { recursive: true });
-    writeFileSync(`${file}.${process.pid}.tmp`, 'velho', { mode: 0o644 });
+    const icacls = join(process.env.SystemRoot!, 'System32', 'icacls.exe');
+    execFileSync(icacls, [dir, '/grant', '*S-1-1-0:(OI)(CI)R', '/Q']);
+    expect(s.save(SESSION)).toBe(true);
+    expectPrivate(file);
+  });
+
+  it.skipIf(process.platform !== 'win32')('falha de ACL não deixa o token em temporário ou no arquivo final', () => {
+    const { file, dir, store: s } = store();
+    vi.stubEnv('SystemRoot', '');
+    expect(s.save(SESSION)).toBe(false);
+    expect(s.get()?.token).toBe(TOKEN);
+    expect(existsSync(file)).toBe(false);
+    expect(existsSync(dir) ? readdirSync(dir) : []).toEqual([]);
+  });
+
+  it('ignora temporário velho e grava arquivo novo privado', () => {
+    const { file, dir, store: s } = store();
+    mkdirSync(dir, { recursive: true });
+    const old = `${file}.${process.pid}.tmp`;
+    writeFileSync(old, 'velho', { mode: 0o644 });
     s.save(SESSION);
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+    expectPrivate(file);
+    expect(readFileSync(old, 'utf8')).toBe('velho');
   });
 
   it('update muda só acesso e personagem; clear apaga o arquivo', () => {
@@ -68,7 +113,7 @@ describe('WorldSettingsStore', () => {
     expect(s.getTheme()).toBe('auto');
     s.setTheme('halloween');
     expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ theme: 'halloween' });
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+    expectPrivate(file);
     s.save(SESSION);
     expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ ...SESSION, updatedAt: 1_000, theme: 'halloween' });
     s.clear();

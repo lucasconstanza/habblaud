@@ -7,7 +7,8 @@
 // Cada transcript é relido só quando muda (mtime/tamanho). Os anexos ganham ids opacos: o navegador nunca vê caminhos.
 import { createHash } from 'node:crypto';
 import { statSync } from 'node:fs';
-import { isAbsolute, join, normalize } from 'node:path';
+import { posix, win32 } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { tr } from '../../shared/i18n';
 import type { DeliveryAttachment, DeliveryInfo, Provider, RecentSession, TerminalEntry } from '../../shared/types';
 import type { TerminalParser } from '../sources/terminal';
@@ -29,6 +30,7 @@ const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'apply
 /** Caminhos de arquivo de ver citados na resposta: em links markdown ou soltos. */
 const LINK_RE = /\]\(\s*<?([^)\s>]+?\.(?:png|jpe?g|gif|webp|svg|pdf|mp4|mov|webm|html?))(?::\d+)?>?\s*\)/gi;
 const BARE_RE = /(?:^|[\s(`"'])(\/[^\s`"'()<>]+?\.(?:png|jpe?g|gif|webp|svg|pdf|mp4|mov|webm|html?))(?=$|[\s`"'),.;:!?])/gim;
+const BARE_WINDOWS_RE = /(?:^|[\s(`"'])([A-Za-z]:[\\/][^\s`"'()<>]+?\.(?:png|jpe?g|gif|webp|svg|pdf|mp4|mov|webm|html?))(?=$|[\s`"'),.;:!?])/gim;
 
 export interface SessionSource {
   path: string;
@@ -125,22 +127,33 @@ export function linkedFiles(text: string, project?: string): string[] {
   const out = new Set<string>();
   const add = (raw: string) => {
     let p = raw.trim();
-    try {
-      p = decodeURIComponent(p);
-    } catch {
-      // fica como veio
+    if (p.startsWith('file://')) {
+      try {
+        const u = new URL(p);
+        // O transcript pode vir do Windows mesmo quando o servidor roda no Linux do Docker.
+        if (u.hostname && u.hostname !== 'localhost') return; // UNC/remoto não é anexo local
+        p = /^\/[A-Za-z]:\//.test(u.pathname)
+          ? decodeURIComponent(u.pathname.slice(1)).replace(/\//g, '\\')
+          : fileURLToPath(u);
+      } catch {
+        return;
+      }
+    } else {
+      try { p = decodeURIComponent(p); } catch { /* fica como veio */ }
     }
-    if (p.startsWith('file://')) p = p.slice(7);
-    if (/^[a-z]+:/i.test(p)) return;
-    if (!isAbsolute(p)) {
+    const windows = /^[A-Za-z]:[\\/]/.test(p) || !p.startsWith('/') && !!project && /^[A-Za-z]:[\\/]/.test(project);
+    const pathApi = windows ? win32 : posix;
+    if (/^[a-z][a-z0-9+.-]*:/i.test(p) && !/^[A-Za-z]:[\\/]/.test(p)) return;
+    if (!pathApi.isAbsolute(p)) {
       if (!project) return;
-      p = join(project, p);
+      p = pathApi.join(project, p);
     }
-    p = normalize(p);
+    p = pathApi.normalize(p);
     if (!pathProblem(p)) out.add(p);
   };
   for (const m of text.matchAll(LINK_RE)) add(m[1]);
   for (const m of text.matchAll(BARE_RE)) add(m[1]);
+  for (const m of text.matchAll(BARE_WINDOWS_RE)) add(m[1]);
   return [...out];
 }
 

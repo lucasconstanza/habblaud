@@ -11,6 +11,8 @@ import { checkFile, DELIVERY_FILE_MAX_BYTES } from './files';
 export const HOST_PRESENCE_MS = 10_000;
 export const WAIT_MS = 20_000;
 const CACHE_MAX_BYTES = 80 * 1024 * 1024;
+/** O auxiliar pode reler arquivos alterados mesmo quando o navegador pede o mesmo caminho. */
+const CACHE_TTL_MS = 5_000;
 const MAX_PENDING = 16;
 
 export type FetchResult = { data: Buffer } | { error: string; status: number };
@@ -34,7 +36,7 @@ export interface FileFetcherOptions {
 }
 
 export class FileFetcher {
-  private readonly cache = new Map<string, Buffer>();
+  private readonly cache = new Map<string, { data: Buffer; at: number }>();
   private cacheBytes = 0;
   private readonly pending = new Map<string, Pending>();
   private readonly host: HostWait;
@@ -50,16 +52,20 @@ export class FileFetcher {
   }
 
   async get(path: string): Promise<FetchResult> {
-    const hit = this.cache.get(path);
-    if (hit) {
-      this.cache.delete(path);
-      this.cache.set(path, hit);
-      return { data: hit };
-    }
+    // Arquivos acessíveis neste processo são conferidos e lidos de novo a cada pedido.
     const local = this.opts.direct ? path : this.opts.mapHostPath?.(path);
     if (local) {
       const r = this.readLocal(local);
       if ('data' in r || this.opts.direct) return r;
+    }
+    const hit = this.cache.get(path);
+    if (hit) {
+      this.cache.delete(path);
+      if (this.now() - hit.at < CACHE_TTL_MS) {
+        this.cache.set(path, hit);
+        return { data: hit.data };
+      }
+      this.cacheBytes -= hit.data.length;
     }
     if (this.opts.direct) return { error: tr('arquivo não encontrado'), status: 404 };
     if (!this.hostAvailable()) return { error: tr('o auxiliar do computador (npm run codex:bridge) não está rodando'), status: 503 };
@@ -117,7 +123,6 @@ export class FileFetcher {
     if ('error' in c) return { error: c.error, status: c.error === tr('arquivo não encontrado') ? 404 : 403 };
     try {
       const data = (this.opts.read ?? readFileSync)(c.path);
-      this.remember(path, data);
       return { data };
     } catch {
       return { error: tr('arquivo ilegível'), status: 404 };
@@ -126,12 +131,15 @@ export class FileFetcher {
 
   private remember(path: string, data: Buffer): void {
     if (data.length > CACHE_MAX_BYTES / 4) return;
-    this.cache.set(path, data);
+    const old = this.cache.get(path);
+    if (old) this.cacheBytes -= old.data.length;
+    this.cache.delete(path);
+    this.cache.set(path, { data, at: this.now() });
     this.cacheBytes += data.length;
     for (const [k, v] of this.cache) {
       if (this.cacheBytes <= CACHE_MAX_BYTES) break;
       this.cache.delete(k);
-      this.cacheBytes -= v.length;
+      this.cacheBytes -= v.data.length;
     }
   }
 }

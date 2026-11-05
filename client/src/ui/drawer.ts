@@ -569,7 +569,8 @@ class AgentView {
 
     // Alerta.
     const waiting = a.status === 'waiting' && !!live;
-    this.perm.render(live);
+    // Pedidos do Antigravity CLI continuam na própria CLI, mesmo que um evento futuro traga metadados do pedido.
+    this.perm.render(provider === 'antigravity' ? undefined : live);
     setHidden(this.alert, !waiting || this.perm.visible);
     if (waiting) {
       const accName = account?.name ?? a.account;
@@ -578,7 +579,7 @@ class AgentView {
       setText(this.alertText, tr('Vá {0} em {1} para responder{2}', [where, room?.name ?? tr('seu projeto'), a.waitingFor ? `: ${a.waitingFor}` : '.']));
     }
     // Perguntas do AskUserQuestion (só leitura): o Codex não pergunta pelo escritório.
-    const asking = waiting && !codex && a.activity?.kind === 'ask' ? a.activity : undefined;
+    const asking = waiting && !codex && provider !== 'antigravity' && a.activity?.kind === 'ask' ? a.activity : undefined;
     this.renderQuestions(asking);
     // Sem o pedido no escritório: dá para responder por aqui com o plugin (só com a trava local, como o cartão). O Codex
     // não responde perguntas pelo escritório.
@@ -720,7 +721,7 @@ class AgentView {
             ? tr('O agente já saiu do escritório.')
             : kind === 'ao vivo'
               ? tr('Ver a conversa desta sessão como no {0}, ao vivo{1} (T)', [
-                  provider === 'codex' ? 'Codex' : tr('terminal do Claude Code'),
+                  provider === 'codex' ? 'Codex' : provider === 'gemini' ? 'Gemini CLI' : provider === 'antigravity' ? 'Antigravity CLI' : tr('terminal do Claude Code'),
                   this.pty.enabled && ptyControllable(this.last) ? tr('; "Assumir daqui" continua nela aqui') : '',
                 ])
               : kind === 'interativo'

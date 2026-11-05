@@ -2,8 +2,8 @@
 //   GET /api/sessions/recent                       -> RecentSessionsResponse (sessões dos últimos 7 dias)
 //   GET /api/sessions/:conta/:sessionId/terminal   -> SSE com o mesmo protocolo do terminal do agente
 // Mesma trava do terminal (ServerConfig.terminal + Host local), porque expõem títulos e conversas. A conta
-// precisa ser uma das conhecidas, o id precisa ter formato de UUID e o transcript precisa ficar dentro da
-// pasta da conta (cada ferramenta valida o seu: sources/history.ts para o Claude Code): nada de path traversal.
+// precisa ser uma das conhecidas, o id segue o formato validado pela fonte e o transcript precisa ficar dentro da
+// pasta montada da conta (cada ferramenta valida o seu): nada de path traversal.
 // Quem lista e resolve é o HistorySet (sources/source.ts), que junta o histórico de todas as ferramentas.
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { RecentSessionsResponse } from '../../shared/types';
