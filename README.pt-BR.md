@@ -129,7 +129,7 @@ ela, e o endereço antigo apaga e é desmontado. Assim o prédio não fica com b
 - **Windows 11** (testado), macOS ou Linux.
 - Pelo menos uma ferramenta instalada: **[Claude Code](https://code.claude.com)**, **Codex** ou **Gemini CLI**. O mod de uso ao vivo do Claude Code requer a versão 2.1.287 ou posterior.
 - **Node.js 22.12+** e **npm** (desenvolvido com o Node 24; o Docker já usa o Node 24).
-- **Docker Desktop** (ou Docker Engine com Compose v2), se for rodar em container.
+- **Docker Desktop** (ou Docker Engine com Compose v2), se for rodar em container. Os atalhos do Windows requerem Python com `pywin32` e PowerShell 7; veja [inicialização local](local/README.md).
 
 ### 1. Baixe o projeto
 

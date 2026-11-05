@@ -4,8 +4,10 @@ Os arquivos desta pasta iniciam o Habblaud em `127.0.0.1:4747`, sem acesso remot
 Habblaud World, checagem automática de atualização ou terminal interativo. O
 servidor continua mostrando as sessões locais do Codex, do Claude Code e do Gemini CLI.
 
-Após clonar o repositório, execute `npm ci` e `npm run build`. Para criar os
-atalhos da Área de Trabalho e de inicialização da bandeja, execute
+Após clonar o repositório, execute `npm ci` e `npm run build`. A criação ou
+reparação dos atalhos requer Python com `pywin32` (`python -m pip install pywin32`)
+e PowerShell 7. Para criar os atalhos da Área de Trabalho e de inicialização da
+bandeja, execute
 `python local/create-shortcuts.py` no diretório do projeto. Se já existirem
 atalhos antigos do próprio Habblaud, confira a prévia com
 `python local/create-shortcuts.py --repair --dry-run` e atualize com

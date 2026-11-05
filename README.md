@@ -130,7 +130,7 @@ shrinks on its own.
 - **Windows 11** (tested), macOS, or Linux.
 - At least one installed tool: **[Claude Code](https://code.claude.com)**, **Codex**, or **Gemini CLI**. The Claude Code live-usage mod requires version 2.1.287 or newer.
 - **Node.js 22.12+** and **npm** (developed with Node 24; Docker already uses Node 24).
-- **Docker Desktop** (or Docker Engine with Compose v2), if you're going to run it in a container.
+- **Docker Desktop** (or Docker Engine with Compose v2), if you're going to run it in a container. Windows shortcuts require Python with `pywin32` and PowerShell 7; see [local startup](local/README.md).
 
 ### 1. Get the project
 
